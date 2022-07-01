@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2022, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2022, NVIDIA CORPORATION.  All rights reserved.
 #
 # NVIDIA CORPORATION and its licensors retain all intellectual property
 # and proprietary rights in and to this software, related documentation
@@ -109,6 +109,26 @@ def generate_launch_description():
     mask_width = LaunchConfiguration('mask_width')
     mask_height = LaunchConfiguration('mask_height')
 
+    argus_mono_node = ComposableNode(
+        name='argus_mono',
+        package='isaac_ros_argus_camera',
+        plugin='nvidia::isaac_ros::argus::ArgusMonoNode'
+    )
+
+    rectify_node = ComposableNode(
+        name='rectify_node',
+        package='isaac_ros_image_proc',
+        plugin='nvidia::isaac_ros::image_proc::RectifyNode',
+        parameters=[{
+            'output_width': 1920,
+            'output_height': 1200,
+        }],
+        remappings=[
+            ('image_raw', 'left/image_raw'),
+            ('camera_info', 'left/camerainfo')
+        ]
+    )
+
     # Parameters preconfigured for PeopleSemSegNet.
     encoder_node = ComposableNode(
         name='dnn_image_encoder',
@@ -120,7 +140,10 @@ def generate_launch_description():
             'image_mean': encoder_image_mean,
             'image_stddev': encoder_image_stddev,
         }],
-        remappings=[('encoded_tensor', 'tensor_pub')]
+        remappings=[
+            ('image', 'image_rect'),
+            ('encoded_tensor', 'tensor_pub'),
+        ]
     )
 
     triton_node = ComposableNode(
@@ -158,7 +181,9 @@ def generate_launch_description():
         namespace='',
         package='rclcpp_components',
         executable='component_container_mt',
-        composable_node_descriptions=[encoder_node, triton_node, unet_decoder_node],
+        composable_node_descriptions=[
+            argus_mono_node, rectify_node,
+            encoder_node, triton_node, unet_decoder_node],
         output='screen'
     )
 

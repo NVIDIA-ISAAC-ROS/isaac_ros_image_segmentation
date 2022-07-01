@@ -1,0 +1,180 @@
+%YAML 1.2
+# Copyright (c) 2022, NVIDIA CORPORATION.  All rights reserved.
+#
+# NVIDIA CORPORATION and its licensors retain all intellectual property
+# and proprietary rights in and to this software, related documentation
+# and any modifications thereto.  Any use, reproduction, disclosure or
+# distribution of this software and related documentation without an express
+# license agreement from NVIDIA CORPORATION is strictly prohibited.
+---
+name: segmentation_postprocessor
+components:
+- name: input_tensor
+  type: nvidia::gxf::DoubleBufferReceiver
+  parameters:
+    capacity: 12
+    policy: 0
+- type: nvidia::gxf::MessageAvailableSchedulingTerm
+  parameters:
+    receiver: input_tensor
+    min_size: 1
+- name: output_video_buffer
+  type: nvidia::gxf::DoubleBufferTransmitter
+  parameters:
+    capacity: 12
+    policy: 0
+- type: nvidia::gxf::DownstreamReceptiveSchedulingTerm
+  parameters:
+    transmitter: output_video_buffer
+    min_size: 1
+- name: allocator
+  type: nvidia::gxf::BlockMemoryPool
+  parameters:
+    storage_type: 1
+    block_size: 522240
+    num_blocks: 40
+- name: stream
+  type: nvidia::gxf::CudaStreamPool
+  parameters:
+    dev_id: 0
+    stream_flags: 0
+    stream_priority: 0
+    reserved_size: 1
+    max_size: 5
+- type: nvidia::isaac_ros::SegmentationPostprocessor
+  parameters:
+    in: input_tensor
+    out: output_video_buffer
+    allocator: allocator
+    network_output_type: softmax
+    data_format: NHWC
+    cuda_stream_pool: stream
+---
+name: segmentation_broadcaster
+components:
+- name: input_video_buffer
+  type: nvidia::gxf::DoubleBufferReceiver
+  parameters:
+    capacity: 1
+    policy: 0
+- type: nvidia::gxf::MessageAvailableSchedulingTerm
+  parameters:
+    receiver: input_video_buffer
+    min_size: 1
+- type: nvidia::gxf::Broadcast
+  parameters:
+    source: input_video_buffer
+- name: output_video_buffer
+  type: nvidia::gxf::DoubleBufferTransmitter
+  parameters:
+    capacity: 1
+    policy: 0
+- type: nvidia::gxf::DownstreamReceptiveSchedulingTerm
+  parameters:
+    transmitter: output_video_buffer
+    min_size: 1
+- name: output_raw_segmentation_mask
+  type: nvidia::gxf::DoubleBufferTransmitter
+  parameters:
+    capacity: 1
+    policy: 0
+- type: nvidia::gxf::DownstreamReceptiveSchedulingTerm
+  parameters:
+    transmitter: output_raw_segmentation_mask
+    min_size: 1
+---
+name: segmentation_mask_generator
+components:
+- name: input_video_buffer
+  type: nvidia::gxf::DoubleBufferReceiver
+  parameters:
+    capacity: 12
+    policy: 0
+- type: nvidia::gxf::MessageAvailableSchedulingTerm
+  parameters:
+    receiver: input_video_buffer
+    min_size: 1
+- name: output_colored_segmentation_mask
+  type: nvidia::gxf::DoubleBufferTransmitter
+  parameters:
+    capacity: 12
+    policy: 0
+- type: nvidia::gxf::DownstreamReceptiveSchedulingTerm
+  parameters:
+    transmitter: output_colored_segmentation_mask
+    min_size: 1
+- name: allocator
+  type: nvidia::gxf::BlockMemoryPool
+  parameters:
+    storage_type: 1
+    block_size: 1566720
+    num_blocks: 40
+- type: nvidia::isaac_ros::SegmentationMaskColorizer
+  parameters:
+    raw_segmentation_mask_input: input_video_buffer
+    colored_segmentation_mask_output: output_colored_segmentation_mask
+    allocator: allocator
+    color_palette: []
+    color_segmentation_mask_encoding: "rgb8"
+---
+name: raw_segmentation_mask_vault
+components:
+- name: input_raw_segmentation_mask
+  type: nvidia::gxf::DoubleBufferReceiver
+  parameters:
+    capacity: 1
+    policy: 0
+- type: nvidia::gxf::MessageAvailableSchedulingTerm
+  parameters:
+    receiver: input_raw_segmentation_mask
+    min_size: 1
+- name: vault
+  type: nvidia::gxf::Vault
+  parameters:
+    source: input_raw_segmentation_mask
+    max_waiting_count: 1
+    drop_waiting: false
+---
+name: colored_segmentation_mask_vault
+components:
+- name: input_colored_segmentation_mask
+  type: nvidia::gxf::DoubleBufferReceiver
+  parameters:
+    capacity: 1
+    policy: 0
+- type: nvidia::gxf::MessageAvailableSchedulingTerm
+  parameters:
+    receiver: input_colored_segmentation_mask
+    min_size: 1
+- name: vault
+  type: nvidia::gxf::Vault
+  parameters:
+    source: input_colored_segmentation_mask
+    max_waiting_count: 1
+    drop_waiting: false
+---
+components:
+- type: nvidia::gxf::Connection
+  parameters:
+    source: segmentation_postprocessor/output_video_buffer
+    target: segmentation_broadcaster/input_video_buffer
+- type: nvidia::gxf::Connection
+  parameters:
+    source: segmentation_broadcaster/output_raw_segmentation_mask
+    target: raw_segmentation_mask_vault/input_raw_segmentation_mask
+- type: nvidia::gxf::Connection
+  parameters:
+    source: segmentation_broadcaster/output_video_buffer
+    target: segmentation_mask_generator/input_video_buffer
+- type: nvidia::gxf::Connection
+  parameters:
+    source: segmentation_mask_generator/output_colored_segmentation_mask
+    target: colored_segmentation_mask_vault/input_colored_segmentation_mask
+---
+components:
+- name: clock
+  type: nvidia::gxf::RealtimeClock
+- type: nvidia::gxf::GreedyScheduler
+  parameters:
+    clock: clock
+    stop_on_deadlock: false
