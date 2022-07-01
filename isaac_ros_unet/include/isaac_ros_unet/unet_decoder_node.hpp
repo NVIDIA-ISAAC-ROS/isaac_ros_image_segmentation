@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2021, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2021-2022, NVIDIA CORPORATION.  All rights reserved.
  *
  * NVIDIA CORPORATION and its licensors retain all intellectual property
  * and proprietary rights in and to this software, related documentation
@@ -15,41 +15,25 @@
 #include <string>
 #include <vector>
 
-#include "isaac_ros_nvengine_interfaces/msg/tensor_list.hpp"
-#include "sensor_msgs/msg/image.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "isaac_ros_nitros/nitros_node.hpp"
 
+namespace nvidia
+{
 namespace isaac_ros
 {
 namespace unet
 {
 
-class UNetDecoderNode : public rclcpp::Node
+class UNetDecoderNode : public nitros::NitrosNode
 {
 public:
   explicit UNetDecoderNode(const rclcpp::NodeOptions options = rclcpp::NodeOptions());
   ~UNetDecoderNode();
 
+  void postLoadGraphCallback() override;
+
 private:
-/**
- * @brief Callback to decode a tensor list output by a U-Net architecture
- *        and then publish a segmentation mask
- *
- * @param tensor_list_msg The TensorList msg representing the segmentation mask output by U-Net
-                          This list should contain only one Tensor, formatted in NHWC format
- */
-  void UNetDecoderCallback(
-    const isaac_ros_nvengine_interfaces::msg::TensorList::ConstSharedPtr tensor_list_msg);
-
-  // Queue size of subscriber
-  int queue_size_;
-
-  // Frame id that the message should be in
-  std::string header_frame_id_;
-
-  // The output order of the tensor from U-Net. Note: only NHWC is supported currently.
-  std::string tensor_output_order_;
-
   // The color encoding that the colored segmentation mask should be in
   // This should be either rgb8 or bgr8
   std::string color_segmentation_mask_encoding_;
@@ -59,18 +43,18 @@ private:
   // Note: only the first 24 bits are used
   std::vector<int64_t> color_palette_;
 
-  // Subscribes to a Tensor that will be converted to a segmentation mask (image)
-  rclcpp::Subscription<isaac_ros_nvengine_interfaces::msg::TensorList>::SharedPtr tensor_list_sub_;
+  // Whether sigmoid or softmax was performed by the network
+  std::string network_output_type_;
 
-  // Publishes the processed Tensor as a segmentation mask (image)
-  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr raw_segmentation_pub_;
-  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr colored_segmentation_pub_;
+  // The width of the segmentation mask
+  int16_t mask_width_;
 
-  struct UNetDecoderImpl;
-  std::unique_ptr<UNetDecoderImpl> impl_;  // Pointer to implementation
+  // The height of the segmentation mask
+  int16_t mask_height_;
 };
 
 }  // namespace unet
 }  // namespace isaac_ros
+}  // namespace nvidia
 
 #endif  // ISAAC_ROS_UNET__UNET_DECODER_NODE_HPP_

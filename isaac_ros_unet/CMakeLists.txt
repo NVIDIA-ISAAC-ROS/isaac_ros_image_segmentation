@@ -1,4 +1,4 @@
-# Copyright (c) 2021, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2021-2022, NVIDIA CORPORATION.  All rights reserved.
 #
 # NVIDIA CORPORATION and its licensors retain all intellectual property
 # and proprietary rights in and to this software, related documentation
@@ -24,6 +24,11 @@ if(NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
 endif()
 message( STATUS "CMAKE_BUILD_TYPE: ${CMAKE_BUILD_TYPE}" )
 
+execute_process(COMMAND uname -m COMMAND tr -d '\n'
+  OUTPUT_VARIABLE ARCHITECTURE
+)
+message( STATUS "Architecture: ${ARCHITECTURE}" )
+
 find_package(ament_cmake_auto REQUIRED)
 ament_auto_find_build_dependencies()
 
@@ -32,14 +37,27 @@ ament_auto_add_library(unet_decoder_node SHARED src/unet_decoder_node.cpp)
 target_compile_definitions(unet_decoder_node
   PRIVATE "COMPOSITION_BUILDING_DLL"
 )
-rclcpp_components_register_nodes(unet_decoder_node "isaac_ros::unet::UNetDecoderNode")
-set(node_plugins "${node_plugins}isaac_ros::unet::UNetDecoderNode;$<TARGET_FILE:unet_decoder_node>\n")
+rclcpp_components_register_nodes(unet_decoder_node "nvidia::isaac_ros::unet::UNetDecoderNode")
+set(node_plugins "${node_plugins}nvidia::isaac_ros::unet::UNetDecoderNode;$<TARGET_FILE:unet_decoder_node>\n")
+
+# Install config directory
+install(
+  DIRECTORY config
+  DESTINATION share/${PROJECT_NAME}
+)
 
 install(TARGETS unet_decoder_node
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
 )
+
+# Install extensions directory
+if( ${ARCHITECTURE} STREQUAL "x86_64" )
+  install(DIRECTORY gxf/lib/gxf_x86_64/ DESTINATION share/${PROJECT_NAME}/gxf)
+elseif( ${ARCHITECTURE} STREQUAL "aarch64" )
+  install(DIRECTORY gxf/lib/gxf_jetpack50/ DESTINATION share/${PROJECT_NAME}/gxf)
+endif()
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

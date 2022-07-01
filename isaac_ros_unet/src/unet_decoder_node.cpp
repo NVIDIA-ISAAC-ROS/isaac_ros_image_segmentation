@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2021, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2021-2022, NVIDIA CORPORATION.  All rights reserved.
  *
  * NVIDIA CORPORATION and its licensors retain all intellectual property
  * and proprietary rights in and to this software, related documentation
@@ -10,267 +10,208 @@
 
 #include "isaac_ros_unet/unet_decoder_node.hpp"
 
+#include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
-#include "sensor_msgs/image_encodings.hpp"
-#include "std_msgs/msg/header.hpp"
+#include "rclcpp/rclcpp.hpp"
+#include "sensor_msgs/sensor_msgs/image_encodings.hpp"
+#include "isaac_ros_nitros/types/nitros_image.hpp"
+#include "isaac_ros_nitros/types/nitros_tensor_list.hpp"
 
-namespace
+namespace nvidia
 {
-enum TensorOutputOrder
-{
-  NHWC
-};
-
-const std::unordered_map<std::string, int32_t> g_str_to_tensor_output_order({
-    {"NHWC", TensorOutputOrder::NHWC}});
-
-const std::unordered_map<std::string, int32_t> g_str_to_channel_size({
-    {sensor_msgs::image_encodings::RGB8, 3},
-    {sensor_msgs::image_encodings::BGR8, 3},
-    {sensor_msgs::image_encodings::MONO8, 1}});
-
-const int32_t kFloat32 = 9;
-}   // namespace
-
 namespace isaac_ros
 {
 namespace unet
 {
-struct UNetDecoderNode::UNetDecoderImpl
+namespace
 {
-  std::string header_frame_id_;
-  std::string color_segmentation_mask_encoding_;
-  std::vector<int64_t> color_palette_;
-  int32_t kTensorHeightIdx;
-  int32_t kTensorWidthIdx;
-  int32_t kTensorClassIdx;
-  int32_t kNumberColorChannels{3};
 
-  void Initialize(
-    const std::string & header_frame_id, const std::string & tensor_output_order,
-    const std::string & color_segmentation_mask_encoding,
-    const std::vector<int64_t> & color_palette)
-  {
-    header_frame_id_ = header_frame_id;
-    color_segmentation_mask_encoding_ = color_segmentation_mask_encoding;
-    color_palette_ = color_palette;
-    switch (g_str_to_tensor_output_order.at(tensor_output_order)) {
-      case TensorOutputOrder::NHWC:
-        kTensorHeightIdx = 1;
-        kTensorWidthIdx = 2;
-        kTensorClassIdx = 3;
-        break;
-      default:
-        throw std::invalid_argument("Received invalid tensor output order!" + tensor_output_order);
-        break;
+using nvidia::gxf::optimizer::GraphIOGroupSupportedDataTypesInfoList;
+
+constexpr char INPUT_COMPONENT_KEY[] = "segmentation_postprocessor/input_tensor";
+constexpr char INPUT_DEFAULT_TENSOR_FORMAT[] = "nitros_tensor_list_nhwc_rgb_f32";
+constexpr char INPUT_TOPIC_NAME[] = "tensor_sub";
+
+constexpr char RAW_OUTPUT_COMPONENT_KEY[] = "raw_segmentation_mask_vault/vault";
+constexpr char RAW_OUTPUT_DEFAULT_TENSOR_FORMAT[] = "nitros_image_mono8";
+constexpr char RAW_OUTPUT_TOPIC_NAME[] = "unet/raw_segmentation_mask";
+
+constexpr char COLORED_OUTPUT_COMPONENT_KEY[] = "colored_segmentation_mask_vault/vault";
+constexpr char COLORED_OUTPUT_DEFAULT_TENSOR_FORMAT[] = "nitros_image_rgb8";
+constexpr char COLORED_OUTPUT_TOPIC_NAME[] = "unet/colored_segmentation_mask";
+
+constexpr char APP_YAML_FILENAME[] = "config/unet_decoder_node.yaml";
+constexpr char PACKAGE_NAME[] = "isaac_ros_unet";
+
+const std::vector<std::pair<std::string, std::string>> EXTENSIONS = {
+  {"isaac_ros_nitros", "gxf/std/libgxf_std.so"},
+  {"isaac_ros_nitros", "gxf/cuda/libgxf_cuda.so"},
+  {"isaac_ros_unet", "gxf/segmentation_postprocessor/libgxf_segmentation_postprocessor.so"}};
+const std::vector<std::string> PRESET_EXTENSION_SPEC_NAMES = {
+  "isaac_ros_unet",
+};
+const std::vector<std::string> EXTENSION_SPEC_FILENAMES = {};
+const std::vector<std::string> GENERATOR_RULE_FILENAMES = {};
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+const nitros::NitrosPublisherSubscriberConfigMap CONFIG_MAP = {
+  {INPUT_COMPONENT_KEY,
+    {
+      .type = nitros::NitrosPublisherSubscriberType::NEGOTIATED,
+      .qos = rclcpp::QoS(1),
+      .compatible_data_format = INPUT_DEFAULT_TENSOR_FORMAT,
+      .topic_name = INPUT_TOPIC_NAME,
+    }},
+  {RAW_OUTPUT_COMPONENT_KEY,
+    {
+      .type = nitros::NitrosPublisherSubscriberType::NEGOTIATED,
+      .qos = rclcpp::QoS(1),
+      .compatible_data_format = RAW_OUTPUT_DEFAULT_TENSOR_FORMAT,
+      .topic_name = RAW_OUTPUT_TOPIC_NAME,
+      .frame_id_source_key = INPUT_COMPONENT_KEY,
+    }},
+  {COLORED_OUTPUT_COMPONENT_KEY,
+    {
+      .type = nitros::NitrosPublisherSubscriberType::NEGOTIATED,
+      .qos = rclcpp::QoS(1),
+      .compatible_data_format = COLORED_OUTPUT_DEFAULT_TENSOR_FORMAT,
+      .topic_name = COLORED_OUTPUT_TOPIC_NAME,
+      .frame_id_source_key = INPUT_COMPONENT_KEY,
     }
-  }
-
-  void OnCallback(
-    sensor_msgs::msg::Image & output_raw_segmentation_mask,
-    sensor_msgs::msg::Image & output_color_segmentation_mask,
-    const isaac_ros_nvengine_interfaces::msg::Tensor & tensor_msg,
-    const std_msgs::msg::Header & tensor_header)
-  {
-    output_raw_segmentation_mask =
-      GetEmptyImageMsg(tensor_msg, sensor_msgs::image_encodings::MONO8, tensor_header);
-    output_color_segmentation_mask =
-      GetEmptyImageMsg(tensor_msg, color_segmentation_mask_encoding_, tensor_header);
-    ConvertTensorToSegmentationMask(
-      output_raw_segmentation_mask, output_color_segmentation_mask,
-      tensor_msg);
-  }
-
-  sensor_msgs::msg::Image GetEmptyImageMsg(
-    const isaac_ros_nvengine_interfaces::msg::Tensor & tensor_msg,
-    const std::string & image_encoding,
-    const std_msgs::msg::Header & tensor_header)
-  {
-    // Create an empty message with the correct dimensions using the tensor
-    sensor_msgs::msg::Image image_msg;
-    image_msg.encoding = image_encoding;
-    image_msg.is_bigendian = false;
-    image_msg.header = tensor_header;
-    image_msg.header.frame_id = header_frame_id_;
-    image_msg.height = tensor_msg.shape.dims[kTensorHeightIdx];
-    image_msg.width = tensor_msg.shape.dims[kTensorWidthIdx];
-    image_msg.step = sizeof(uint8_t) * image_msg.width * g_str_to_channel_size.at(image_encoding);
-    image_msg.data.resize(image_msg.step * image_msg.height);
-    return image_msg;
-  }
-
-  void ConvertTensorToSegmentationMask(
-    sensor_msgs::msg::Image & raw_segmentation_mask,
-    sensor_msgs::msg::Image & color_segmentation_mask,
-    const isaac_ros_nvengine_interfaces::msg::Tensor & tensor_msg)
-  {
-    if (tensor_msg.data_type == kFloat32) {
-      FillSegmentationMask<float>(raw_segmentation_mask, color_segmentation_mask, tensor_msg);
-    } else {
-      throw std::runtime_error("Recieved invalid Tensor data! Expected float32!");
-    }
-  }
-
-  template<typename T>
-  void FillSegmentationMask(
-    sensor_msgs::msg::Image & raw_segmentation_mask,
-    sensor_msgs::msg::Image & color_segmentation_mask,
-    const isaac_ros_nvengine_interfaces::msg::Tensor & tensor_msg)
-  {
-    // Reinterpret the strides (which are in bytes) + data as the relevant data type
-    const T * tensor_data = reinterpret_cast<const T *>(tensor_msg.data.data());
-    const uint32_t tensor_height_stride = tensor_msg.strides[kTensorHeightIdx] / sizeof(T);
-    const uint32_t tensor_width_stride = tensor_msg.strides[kTensorWidthIdx] / sizeof(T);
-    const uint32_t tensor_class_stride = tensor_msg.strides[kTensorClassIdx] / sizeof(T);
-
-    // RGB8 vs BGR8 position of encodings
-    int red_offset, green_offset, blue_offset;
-    if (color_segmentation_mask_encoding_ == sensor_msgs::image_encodings::RGB8) {
-      red_offset = 0;
-      green_offset = 1;
-      blue_offset = 2;
-    } else if (color_segmentation_mask_encoding_ == sensor_msgs::image_encodings::BGR8) {
-      blue_offset = 0;
-      green_offset = 1;
-      red_offset = 2;
-    } else {
-      throw std::runtime_error("Received unsupported color encoding!");
-    }
-
-    for (size_t h = 0; h < tensor_msg.shape.dims[kTensorHeightIdx]; ++h) {
-      for (size_t w = 0; w < tensor_msg.shape.dims[kTensorWidthIdx]; ++w) {
-        // Compute the min and max index. Note: min is inclusive and max is exclusive
-        uint32_t effective_tensor_min_idx = h * tensor_height_stride + w * tensor_width_stride;
-        uint32_t effective_tensor_max_idx = effective_tensor_min_idx +
-          tensor_msg.shape.dims[kTensorClassIdx] * tensor_class_stride;
-
-        // Find the class label
-        uint8_t class_id = SearchForHighestProbability<T>(
-          tensor_data, effective_tensor_min_idx,
-          effective_tensor_max_idx,
-          tensor_class_stride);
-
-        // Write the data to the raw segmentation image
-        raw_segmentation_mask.data[h * raw_segmentation_mask.step + w] = class_id;
-
-        // Write the appropiate color for the segmentation mask
-        color_segmentation_mask.data[h * color_segmentation_mask.step + kNumberColorChannels * w +
-          red_offset] = (color_palette_[class_id] >> 16) & 0xFF;
-        color_segmentation_mask.data[h * color_segmentation_mask.step + kNumberColorChannels * w +
-          green_offset] = (color_palette_[class_id] >> 8) & 0xFF;
-        color_segmentation_mask.data[h * color_segmentation_mask.step + kNumberColorChannels * w +
-          blue_offset] = color_palette_[class_id] & 0xFF;
-      }
-    }
-  }
-
-  template<typename T>
-  uint8_t SearchForHighestProbability(
-    const T * tensor_data, uint32_t min_idx, uint32_t max_idx,
-    uint32_t stride)
-  {
-    // Performs a straight forward linear search for the max probability
-    T best_element = tensor_data[min_idx];
-    uint8_t best_idx = 0;
-    uint8_t idx_count = 0;
-    for (size_t c = min_idx; c < max_idx; c += stride) {
-      if (best_element < tensor_data[c]) {
-        best_element = tensor_data[c];
-        best_idx = idx_count;
-      }
-      idx_count++;
-    }
-    return best_idx;
   }
 };
+#pragma GCC diagnostic pop
+
+bool IsSupportedNetworkOutputType(const std::string & network_output_type)
+{
+  return network_output_type == std::string{"softmax"} ||
+         network_output_type == std::string{"sigmoid"} ||
+         network_output_type == std::string{"argmax"};
+}
+
+const std::unordered_map<std::string, std::string> INPUT_FORMAT_TO_NITROS({
+          {sensor_msgs::image_encodings::RGB8, nitros::nitros_image_rgb8_t::supported_type_name},
+          {sensor_msgs::image_encodings::BGR8, nitros::nitros_image_bgr8_t::supported_type_name}
+        });
+
+}  // namespace
 
 UNetDecoderNode::UNetDecoderNode(const rclcpp::NodeOptions options)
-: Node("unet_decoder_node", options),
-  // Parameters
-  queue_size_(declare_parameter<int>("queue_size", rmw_qos_profile_default.depth)),
-  header_frame_id_(declare_parameter<std::string>("frame_id", "")),
-  tensor_output_order_(declare_parameter<std::string>("tensor_output_order", "NHWC")),
-  color_segmentation_mask_encoding_(declare_parameter<std::string>(
-      "color_segmentation_mask_encoding", "rgb8")),
-  color_palette_(declare_parameter<std::vector<int64_t>>(
-      "color_palette",
-      std::vector<int64_t>({}))),
-  // Subscribers
-  tensor_list_sub_(create_subscription<isaac_ros_nvengine_interfaces::msg::TensorList>(
-      "tensor_sub", queue_size_,
-      std::bind(&UNetDecoderNode::UNetDecoderCallback, this, std::placeholders::_1))),
-  // Publishers
-  raw_segmentation_pub_(create_publisher<sensor_msgs::msg::Image>("unet/raw_segmentation_mask", 1)),
-  colored_segmentation_pub_(create_publisher<sensor_msgs::msg::Image>(
-      "unet/colored_segmentation_mask", 1)),
-  // Impl initialization
-  impl_(std::make_unique<UNetDecoderImpl>())
+: nitros::NitrosNode(
+    options,
+    APP_YAML_FILENAME,
+    CONFIG_MAP,
+    PRESET_EXTENSION_SPEC_NAMES,
+    EXTENSION_SPEC_FILENAMES,
+    GENERATOR_RULE_FILENAMES,
+    EXTENSIONS,
+    PACKAGE_NAME),
+  color_segmentation_mask_encoding_(
+    declare_parameter<std::string>("color_segmentation_mask_encoding", "rgb8")),
+  color_palette_(
+    declare_parameter<std::vector<int64_t>>("color_palette", std::vector<int64_t>({}))),
+  network_output_type_(declare_parameter<std::string>("network_output_type", "softmax")),
+  mask_width_(declare_parameter<int16_t>("mask_width", 960)),
+  mask_height_(declare_parameter<int16_t>("mask_height", 544))
 {
-  // Received empty header frame id
-  if (header_frame_id_.empty()) {
-    RCLCPP_WARN(get_logger(), "Received empty frame id! Header will be published without one.");
+  // Received invalid color segmentation mask encoding
+  if (color_segmentation_mask_encoding_.empty()) {
+    RCLCPP_ERROR(
+      get_logger(), "Received empty color segmentation mask encoding!");
+    throw std::invalid_argument(
+            "Received empty color segmentation mask encoding!");
   }
 
-  // Received invalid color segmentation mask encoding
-  if (color_segmentation_mask_encoding_ != sensor_msgs::image_encodings::RGB8 &&
-    color_segmentation_mask_encoding_ != sensor_msgs::image_encodings::BGR8)
-  {
-    throw std::runtime_error(
+
+  auto nitros_format = INPUT_FORMAT_TO_NITROS.find(color_segmentation_mask_encoding_);
+  if (nitros_format == std::end(INPUT_FORMAT_TO_NITROS)) {
+    RCLCPP_ERROR(
+      get_logger(), "Received invalid color segmentation mask encoding: %s",
+      color_segmentation_mask_encoding_.c_str());
+    throw std::invalid_argument(
             "Received invalid color segmentation mask encoding: " +
             color_segmentation_mask_encoding_);
+  } else {
+    config_map_[COLORED_OUTPUT_COMPONENT_KEY].compatible_data_format = nitros_format->second;
+    config_map_[COLORED_OUTPUT_COMPONENT_KEY].use_compatible_format_only = true;
   }
 
-  // Received invalid tensor output order
-  if (g_str_to_tensor_output_order.find(tensor_output_order_) ==
-    g_str_to_tensor_output_order.end())
-  {
-    throw std::runtime_error("Received invalid tensor output order: " + tensor_output_order_);
-  }
 
   // Received empty color palette
   if (color_palette_.empty()) {
+    RCLCPP_ERROR(
+      get_logger(),
+      "Received empty color palette! Fill this with a 24-bit hex color for each class!");
     throw std::invalid_argument(
             "Received empty color palette! Fill this with a 24-bit hex color for each class!");
   }
 
-  impl_->Initialize(
-    header_frame_id_, tensor_output_order_, color_segmentation_mask_encoding_,
-    color_palette_);
+  // Received unsupported network output type
+  if (!IsSupportedNetworkOutputType(network_output_type_)) {
+    RCLCPP_ERROR(
+      get_logger(),
+      "Received invalid network output type: %s!",
+      network_output_type_.c_str());
+    throw std::invalid_argument("Received invalid network output type: " + network_output_type_);
+  }
+
+  startNitrosNode();
 }
 
-void UNetDecoderNode::UNetDecoderCallback(
-  const isaac_ros_nvengine_interfaces::msg::TensorList::ConstSharedPtr tensor_list_msg)
+void UNetDecoderNode::postLoadGraphCallback()
 {
-  if (tensor_list_msg->tensors.size() != 1) {
-    RCLCPP_ERROR(
-      get_logger(), "Received invalid tensor count! Expected only one tensor. Not processing.");
-    return;
+  getNitrosContext().setParameter1DInt64Vector(
+    "segmentation_mask_generator",
+    "nvidia::isaac_ros::SegmentationMaskColorizer", "color_palette",
+    color_palette_
+  );
+
+  getNitrosContext().setParameterStr(
+    "segmentation_postprocessor",
+    "nvidia::isaac_ros::SegmentationPostprocessor", "network_output_type",
+    network_output_type_
+  );
+
+  const uint64_t mono_block_size{calculate_image_size(
+      nitros::nitros_image_mono8_t::supported_type_name,
+      mask_width_,
+      mask_height_
+    )};
+
+  getNitrosContext().setParameterUInt64(
+    "segmentation_postprocessor",
+    "nvidia::gxf::BlockMemoryPool", "block_size", mono_block_size
+  );
+
+  std::string color_encoding{};
+  if (color_segmentation_mask_encoding_ == sensor_msgs::image_encodings::RGB8) {
+    color_encoding = nitros::nitros_image_rgb8_t::supported_type_name;
+  } else if (color_segmentation_mask_encoding_ == sensor_msgs::image_encodings::BGR8) {
+    color_encoding = nitros::nitros_image_bgr8_t::supported_type_name;
+  } else {
+    throw std::invalid_argument("Received unknown encoding!");
   }
 
-  auto tensor_msg = tensor_list_msg->tensors[0];
-  sensor_msgs::msg::Image raw_segmentation_mask;
-  sensor_msgs::msg::Image color_segmentation_mask;
-  try {
-    impl_->OnCallback(
-      raw_segmentation_mask, color_segmentation_mask, tensor_msg,
-      tensor_list_msg->header);
-    raw_segmentation_pub_->publish(raw_segmentation_mask);
-    colored_segmentation_pub_->publish(color_segmentation_mask);
-  } catch (const std::runtime_error & e) {
-    RCLCPP_ERROR(get_logger(), e.what());
-    return;
-  }
+  const uint64_t color_block_size{calculate_image_size(
+      color_encoding, mask_width_, mask_height_
+    )};
+
+  getNitrosContext().setParameterUInt64(
+    "segmentation_mask_generator",
+    "nvidia::gxf::BlockMemoryPool", "block_size", color_block_size
+  );
 }
 
 UNetDecoderNode::~UNetDecoderNode() = default;
 
 }  // namespace unet
 }  // namespace isaac_ros
+}  // namespace nvidia
 
 // Register as component
 #include "rclcpp_components/register_node_macro.hpp"
-RCLCPP_COMPONENTS_REGISTER_NODE(isaac_ros::unet::UNetDecoderNode)
+RCLCPP_COMPONENTS_REGISTER_NODE(nvidia::isaac_ros::unet::UNetDecoderNode)
