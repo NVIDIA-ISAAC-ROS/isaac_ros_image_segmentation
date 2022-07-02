@@ -5,7 +5,7 @@
 ## Overview
 This repository provides NVIDIA GPU-accelerated packages for semantic image segmentation. Using a deep learned [U-Net](https://en.wikipedia.org/wiki/U-Net) model, such as [`PeopleSemSegnet`](https://ngc.nvidia.com/catalog/models/nvidia:tao:peoplesemsegnet), and a monocular camera, the `isaac_ros_unet` package can generate an image mask segmenting out objects of interest.
 
-Packages in this repository rely on accelerated DNN model inference using [Triton](https://github.com/triton-inference-server/server) or [TensorRT](https://developer.nvidia.com/tensorrt) from [Isaac ROS DNN Inference](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_common/tree/main/isaac_ros_dnn_inference) and a pretrained model from  [NVIDIA GPU Cloud (NGC)](https://docs.nvidia.com/ngc/) or elsewhere.
+Packages in this repository rely on accelerated DNN model inference using [Triton](https://github.com/triton-inference-server/server) or [TensorRT](https://developer.nvidia.com/tensorrt) from [Isaac ROS DNN Inference](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_dnn_inference) and a pretrained model from  [NVIDIA GPU Cloud (NGC)](https://docs.nvidia.com/ngc/) or elsewhere.
 
 ### Isaac ROS NITROS Acceleration
 This package is powered by [NVIDIA Isaac Transport for ROS (NITROS)](https://developer.nvidia.com/blog/improve-perception-performance-for-ros-2-applications-with-nvidia-isaac-transport-for-ros/), which leverages type adaptation and negotiation to optimize message formats and dramatically accelerate communication between participating nodes. 
