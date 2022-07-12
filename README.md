@@ -30,6 +30,7 @@ The following are the benchmark performance results of the prepared pipelines in
     - [Docker](#docker)
   - [Quickstart](#quickstart)
   - [Next Steps](#next-steps)
+    - [Try More Examples](#try-more-examples)
     - [Try NITROS-Accelerated Graph with Argus](#try-nitros-accelerated-graph-with-argus)
     - [Use Different Models](#use-different-models)
     - [Customize your Dev Environment](#customize-your-dev-environment)
@@ -152,7 +153,9 @@ To simplify development, we strongly recommend leveraging the Isaac ROS Dev Dock
 
     > **Note:** The raw segmentation is also published to `/unet/raw_segmentation_mask`. However, the raw pixels correspond to the class labels and so the output is unsuitable for human visual inspection.
 ## Next Steps
-
+### Try More Examples
+To continue your exploration, check out the following suggested examples:
+- [Tutorial with Isaac Sim](./docs/tutorial-isaac-sim.md)
 ### Try NITROS-Accelerated Graph with Argus
 If you have an Argus-compatible camera, you can launch the NITROS-accelerated graph by following the [tutorial](docs/tutorial-nitros-graph.md).
 
