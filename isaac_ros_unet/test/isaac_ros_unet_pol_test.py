@@ -127,13 +127,24 @@ class IsaacROSUNetPipelineTest(IsaacROSBaseTest):
 
     @IsaacROSBaseTest.for_each_test_case()
     def test_image_segmentation(self, test_folder):
+        self.node._logger.info(f'Generating model (timeout={self.MODEL_GENERATION_TIMEOUT_SEC}s)')
         start_time = time.time()
+        ten_second_count = 1
         while not os.path.isfile(self.MODEL_PATH):
-            if (time.time() - start_time) > self.MODEL_GENERATION_TIMEOUT_SEC:
+            time_diff = time.time() - start_time
+            if time_diff > self.MODEL_GENERATION_TIMEOUT_SEC:
                 self.fail('Model generation timed out')
+            if time_diff > ten_second_count*10:
+                self.node._logger.info(
+                    f'Waiting for model generation to finish... ({int(time_diff)}s passed)')
+                ten_second_count += 1
             time.sleep(1)
+
         # Wait for TensorRT engine
         time.sleep(self.INIT_WAIT_SEC)
+
+        self.node._logger.info(
+            f'Model generation was finished (took {(time.time() - start_time)}s)')
 
         """Expect the node to segment an image."""
         self.generate_namespace_lookup(

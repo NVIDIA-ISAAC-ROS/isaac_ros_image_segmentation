@@ -18,8 +18,8 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/sensor_msgs/image_encodings.hpp"
-#include "isaac_ros_nitros/types/nitros_image.hpp"
-#include "isaac_ros_nitros/types/nitros_tensor_list.hpp"
+#include "isaac_ros_nitros_image_type/nitros_image.hpp"
+#include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list.hpp"
 
 namespace nvidia
 {
@@ -158,6 +158,9 @@ UNetDecoderNode::UNetDecoderNode(const rclcpp::NodeOptions options)
       network_output_type_.c_str());
     throw std::invalid_argument("Received invalid network output type: " + network_output_type_);
   }
+
+  registerSupportedType<nvidia::isaac_ros::nitros::NitrosImage>();
+  registerSupportedType<nvidia::isaac_ros::nitros::NitrosTensorList>();
 
   startNitrosNode();
 }
