@@ -68,7 +68,7 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 
   find_package(launch_testing_ament_cmake REQUIRED)
-  add_launch_test(test/isaac_ros_unet_pol_test.py TIMEOUT "300")
+  add_launch_test(test/isaac_ros_unet_pol_test.py TIMEOUT "400")
 endif()
 
 ament_auto_package(INSTALL_TO_SHARE launch)
