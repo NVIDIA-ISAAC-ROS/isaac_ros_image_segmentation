@@ -24,7 +24,7 @@
 #include <vector>
 
 #include "rclcpp/rclcpp.hpp"
-#include "sensor_msgs/sensor_msgs/image_encodings.hpp"
+#include "sensor_msgs/image_encodings.hpp"
 #include "isaac_ros_nitros_image_type/nitros_image.hpp"
 #include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list.hpp"
 
