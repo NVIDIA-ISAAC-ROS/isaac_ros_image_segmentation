@@ -15,52 +15,31 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.23.2)
 project(isaac_ros_unet LANGUAGES C CXX)
-
-# Default to C++17
-if(NOT CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 17)
-endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-# Default to Release build
-if(NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
-  set(CMAKE_BUILD_TYPE "Release" CACHE STRING "" FORCE)
-endif()
-message( STATUS "CMAKE_BUILD_TYPE: ${CMAKE_BUILD_TYPE}" )
-
-execute_process(COMMAND uname -m COMMAND tr -d '\n'
-  OUTPUT_VARIABLE ARCHITECTURE
-)
-message( STATUS "Architecture: ${ARCHITECTURE}" )
-
 find_package(ament_cmake_auto REQUIRED)
 ament_auto_find_build_dependencies()
 
+# Dependencies
+enable_language(CUDA)
+
 # Decoder node
 ament_auto_add_library(unet_decoder_node SHARED src/unet_decoder_node.cpp)
-target_compile_definitions(unet_decoder_node
-  PRIVATE "COMPOSITION_BUILDING_DLL"
-)
 rclcpp_components_register_nodes(unet_decoder_node "nvidia::isaac_ros::unet::UNetDecoderNode")
 set(node_plugins "${node_plugins}nvidia::isaac_ros::unet::UNetDecoderNode;$<TARGET_FILE:unet_decoder_node>\n")
 
-# Install config directory
-install(
-  DIRECTORY config
-  DESTINATION share/${PROJECT_NAME}
-)
+### Install extensions built from source
 
-install(TARGETS unet_decoder_node
-  ARCHIVE DESTINATION lib
-  LIBRARY DESTINATION lib
-  RUNTIME DESTINATION bin
-)
+# Segmentation Postprocessor
+add_subdirectory(gxf/image_segmentation)
+install(TARGETS gxf_segmentation_postprocessor DESTINATION share/${PROJECT_NAME}/gxf)
 
+### End extensions
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -70,4 +49,4 @@ if(BUILD_TESTING)
   add_launch_test(test/isaac_ros_unet_pol_test.py TIMEOUT "400")
 endif()
 
-ament_auto_package(INSTALL_TO_SHARE launch)
+ament_auto_package(INSTALL_TO_SHARE config launch)

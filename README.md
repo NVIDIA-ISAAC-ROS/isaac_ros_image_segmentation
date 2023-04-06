@@ -1,12 +1,24 @@
 # Isaac ROS Image Segmentation
 
-<div align="center"><img alt="Isaac ROS Image Segmentation Sample Output" src="resources/isaac_ros_people_segmentation.gif" width="400px"/></div>
+<div align="center"><img alt="sample input to image segmentation" src="resources/isaac_ros_image_segmentation_example.png" width="320px"/> <img alt="sample output from image segmentation" src="resources/isaac_ros_image_segmentation_example_seg.png" width="320px"/></div>
 
 ## Overview
 
-This repository provides NVIDIA GPU-accelerated packages for semantic image segmentation. Using a deep learned [U-Net](https://en.wikipedia.org/wiki/U-Net) model, such as [`PeopleSemSegnet`](https://ngc.nvidia.com/catalog/models/nvidia:tao:peoplesemsegnet), and a monocular camera, the `isaac_ros_unet` package can generate an image mask segmenting out objects of interest.
+Isaac ROS Image Segmentation contains a ROS 2 package to produce semantic image segmentation. `isaac_ros_unet` provides a method for classification of an input image at the pixel level, as each pixel is predicted to belong to a set of defined classes. Classification is performed with GPU acceleration running DNN inference on a U-NET architecture model. The output prediction can be used by perception functions to understand where each class is spatially in a 2D image or fuse with a corresponding depth location in a 3D scene.
 
-Packages in this repository rely on accelerated DNN model inference using [Triton](https://github.com/triton-inference-server/server) or [TensorRT](https://developer.nvidia.com/tensorrt) from [Isaac ROS DNN Inference](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_dnn_inference) and a pretrained model from  [NVIDIA GPU Cloud (NGC)](https://docs.nvidia.com/ngc/) or elsewhere.
+<div align="center"><img alt="sample graph of nodes for image segmentation" src="resources/isaac_ros_image_segmentation_nodegraph.png" width="500px"/></div>
+
+`isaac_ros_unet` is used in a graph of nodes to provide a segmentation mask by class of pixels from an input image. A trained model based on the [U-NET](https://en.wikipedia.org/wiki/U-Net) architecture is required to produce a segmentation mask. Input images may need to be cropped and resized to maintain the aspect ratio and match the input resolution of the U-NET DNN; image resolution may be reduced to improve DNN inference performance, which typically scales directly with the number of pixels in the image.  `isaac_ros_dnn_image_encoder` provides a DNN encoder to process the input image into Tensors for the U-NET model. The output is provided as a raw segmentation mask as input to additional perception functions, or colorized for visualization (inspection and debug).
+
+<div align="center"><img alt="comparison of image segmentation and object detection" src="resources/isaac_ros_image_segmentation_example_bboxseg.png" width="320px"/></div>
+
+Image segmentation provides more information and uses more compute than object detection to produce classifications per pixel, whereas object detection classifies a simpler bounding box rectangle in image coordinates. Object detection is used to know if, and where spatially in a 2D image, the object exists. Image segmentation is used to know which pixels belong to the class and, when fused with corresponding depth information, to know an object location in a 3D scene.
+
+> **Note**: Packages in this repository rely on accelerated DNN model inference using Triton or TensorRT from [Isaac ROS DNN Inference](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_dnn_inference) and a pretrained model.
+
+### DNN Models
+
+A U-NET model is required to use `isaac_ros_unet`. [NGC](https://catalog.ngc.nvidia.com/models) provides pre-trained models for use in your robotics application. NGC pre-trained models can be fine-tuned for your application using TAO Used in the examples on this page [PeopleSemSegNet](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/peoplesemsegnet) provides a pre-trained model for best-in-class, real-time people segmentation. You can train your own U-NET architecture models or download pre-trained models from one of the many model zoo's available online for use with `isaac_ros_unet`.
 
 ### Isaac ROS NITROS Acceleration
 
@@ -14,20 +26,17 @@ This package is powered by [NVIDIA Isaac Transport for ROS (NITROS)](https://dev
 
 ## Performance
 
-The following are the benchmark performance results of the prepared pipelines in this package, by supported platform:
+The following table summarizes the per-platform performance statistics of sample graphs that use this package, with links included to the full benchmark output. These benchmark configurations are taken from the [Isaac ROS Benchmark](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark#list-of-isaac-ros-benchmarks) collection, based on the [`ros2_benchmark`](https://github.com/NVIDIA-ISAAC-ROS/ros2_benchmark) framework.
 
-| Pipeline               | AGX Orin           | Orin Nano          | x86_64 w/ RTX 3060 Ti |
-| ---------------------- | ------------------ | ------------------ | --------------------- |
-| PeopleSemSegNet (544p) | 260 fps <br> 3.7ms | 128 fps <br> 6.7ms | 300 fps <br> 2ms      |
-
-> **Note**: The model performance without the encoder and decoder is reported
-
-These data have been collected per the methodology described [here](https://github.com/NVIDIA-ISAAC-ROS/.github/blob/main/profile/performance-summary.md#methodology).
+| Sample Graph                                                                                                                                    | Input Size | AGX Orin                                                                                                                                  | Orin NX                                                                                                                                  | Orin Nano 8GB                                                                                                                                 | x86_64 w/ RTX 3060 Ti                                                                                                                               |
+| ----------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [TensorRT Graph<br>PeopleSemSegNet](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark/blob/main/scripts//isaac_ros_unet_graph.py) | 544p       | [400 fps](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark/blob/main/results/isaac_ros_unet_graph-agx_orin.json)<br>5.5 ms | [218 fps](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark/blob/main/results/isaac_ros_unet_graph-orin_nx.json)<br>6.9 ms | [143 fps](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark/blob/main/results/isaac_ros_unet_graph-orin_nano_8gb.json)<br>12 ms | [1190 fps](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark/blob/main/results/isaac_ros_unet_graph-x86_64_rtx_3060Ti.json)<br>1.6 ms |
 
 ## Table of Contents
 
 - [Isaac ROS Image Segmentation](#isaac-ros-image-segmentation)
   - [Overview](#overview)
+    - [DNN Models](#dnn-models)
     - [Isaac ROS NITROS Acceleration](#isaac-ros-nitros-acceleration)
   - [Performance](#performance)
   - [Table of Contents](#table-of-contents)
@@ -53,24 +62,24 @@ These data have been collected per the methodology described [here](https://gith
 
 ## Latest Update
 
-Update 2022-10-19: Updated OSS licensing
+Update 2023-04-05: Source available GXF extensions
 
 ## Supported Platforms
 
-This package is designed and tested to be compatible with ROS2 Humble running on [Jetson](https://developer.nvidia.com/embedded-computing) or an x86_64 system with an NVIDIA GPU.
+This package is designed and tested to be compatible with ROS 2 Humble running on [Jetson](https://developer.nvidia.com/embedded-computing) or an x86_64 system with an NVIDIA GPU.
 
-> **Note**: Versions of ROS2 earlier than Humble are **not** supported. This package depends on specific ROS2 implementation features that were only introduced beginning with the Humble release.
+> **Note**: Versions of ROS 2 earlier than Humble are **not** supported. This package depends on specific ROS 2 implementation features that were only introduced beginning with the Humble release.
 
-| Platform | Hardware                                                                                                                                                                                                 | Software                                                                                                             | Notes                                                                                                                                                                                   |
-| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Jetson   | [Jetson Orin](https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/jetson-orin/) <br> [Jetson Xavier](https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/jetson-agx-xavier/) | [JetPack 5.0.2](https://developer.nvidia.com/embedded/jetpack)                                                       | For best performance, ensure that [power settings](https://docs.nvidia.com/jetson/archives/r34.1/DeveloperGuide/text/SD/PlatformPowerAndPerformance.html) are configured appropriately. |
-| x86_64   | NVIDIA GPU                                                                                                                                                                                               | [Ubuntu 20.04+](https://releases.ubuntu.com/20.04/) <br> [CUDA 11.6.1+](https://developer.nvidia.com/cuda-downloads) |
+| Platform | Hardware                                                                                                                                                                                                 | Software                                                                                                           | Notes                                                                                                                                                                                   |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Jetson   | [Jetson Orin](https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/jetson-orin/) <br> [Jetson Xavier](https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/jetson-agx-xavier/) | [JetPack 5.1.1](https://developer.nvidia.com/embedded/jetpack)                                                     | For best performance, ensure that [power settings](https://docs.nvidia.com/jetson/archives/r34.1/DeveloperGuide/text/SD/PlatformPowerAndPerformance.html) are configured appropriately. |
+| x86_64   | NVIDIA GPU                                                                                                                                                                                               | [Ubuntu 20.04+](https://releases.ubuntu.com/20.04/) <br> [CUDA 11.8+](https://developer.nvidia.com/cuda-downloads) |
 
 ### Docker
 
 To simplify development, we strongly recommend leveraging the Isaac ROS Dev Docker images by following [these steps](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_common/blob/main/docs/dev-env-setup.md). This will streamline your development environment setup with the correct versions of dependencies on both Jetson and x86_64 platforms.
 
-> **Note:** All Isaac ROS Quickstarts, tutorials, and examples have been designed with the Isaac ROS Docker images as a prerequisite.
+> **Note**: All Isaac ROS Quickstarts, tutorials, and examples have been designed with the Isaac ROS Docker images as a prerequisite.
 
 ## Quickstart
 
@@ -95,6 +104,10 @@ To simplify development, we strongly recommend leveraging the Isaac ROS Dev Dock
 
     ```bash
     git clone https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_dnn_inference
+    ```
+
+    ```bash
+    git clone https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_image_pipeline
     ```
 
 3. Pull down a ROS Bag of sample data:
@@ -183,7 +196,7 @@ To simplify development, we strongly recommend leveraging the Isaac ROS Dev Dock
 
     <div align="center"><img alt="Coloured Segmentation Mask" src="resources/peoplesemsegnet_shuffleseg_rqt.png" width="350" title="U-Net Shuffleseg result in rqt_image_view"/></div>
 
-    > **Note:** The raw segmentation is also published to `/unet/raw_segmentation_mask`. However, the raw pixels correspond to the class labels and so the output is unsuitable for human visual inspection.
+    > **Note**: The raw segmentation is also published to `/unet/raw_segmentation_mask`. However, the raw pixels correspond to the class labels and so the output is unsuitable for human visual inspection.
 
 ## Next Steps
 
@@ -245,10 +258,10 @@ ros2 launch isaac_ros_unet isaac_ros_unet_tensor_rt.launch.py network_image_widt
 > - `queue_size`
 > - `frame_id` as the `frame_id` of the header will be forwarded now
 > - `tensor_output_order` as the order will be inferred from the model. Note: the model output should be `NCHW` or `NHWC`. In this context, the `C` refers to the class.
-
-> **Note:** For the `network_output_type` parameter's `softmax` and `sigmoid`option, we currently expect only 32 bit floating point values. For the `argmax` option, we currently expect only signed 32 bit integers.
-
-> **Note:** Models with greater than 255 classes are currently not supported. If a class label greater than 255 is detected, this mask will be downcast to 255 in the raw segmentation.
+<!-- Split blockquote -->
+> **Note**: For the `network_output_type` parameter's `softmax` and `sigmoid`option, we currently expect only 32 bit floating point values. For the `argmax` option, we currently expect only signed 32 bit integers.
+<!-- Split blockquote -->
+> **Note**: Models with greater than 255 classes are currently not supported. If a class label greater than 255 is detected, this mask will be downcast to 255 in the raw segmentation.
 
 #### ROS Topics Subscribed
 
@@ -256,7 +269,7 @@ ros2 launch isaac_ros_unet isaac_ros_unet_tensor_rt.launch.py network_image_widt
 | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | `tensor_sub` | [isaac_ros_tensor_list_interfaces/TensorList](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_common/blob/main/isaac_ros_tensor_list_interfaces/msg/TensorList.msg) | The tensor that contains raw probabilities for every class in each pixel. |
 
-> **Limitation:** All input images are required to have height and width that are both an even number of pixels.
+> **Limitation**: All input images are required to have height and width that are both an even number of pixels.
 
 #### ROS Topics Published
 
@@ -279,6 +292,7 @@ For solutions to problems with using DNN models, please check [here](https://git
 
 | Date       | Changes                                                                                                                                                                                                                                                                                                                              |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 2023-04-05 | Source available GXF extensions                                                                                                                                                                                                                                                                                                      |
 | 2022-10-19 | Updated OSS licensing                                                                                                                                                                                                                                                                                                                |
 | 2022-08-31 | Update to be compatible with JetPack 5.0.2                                                                                                                                                                                                                                                                                           |
 | 2022-06-30 | Removed frame_id, queue_size and tensor_output_order parameter. Added network_output_type parameter (support for sigmoid and argmax output layers). Switched implementation to use NITROS. Removed support for odd sized images. Switched tutorial to use PeopleSemSegNet ShuffleSeg and moved unnecessary details to other READMEs. |

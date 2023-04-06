@@ -4,7 +4,9 @@
 
 ## Overview
 
-This tutorial walks you through a pipeline for [Image Segmentation](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_image_segmentation) of people using images from Isaac Sim.
+This tutorial walks you through a graph for [Image Segmentation](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_image_segmentation) of people using images from Isaac Sim.
+
+Last validated with [Isaac Sim 2022.1.0](https://docs.omniverse.nvidia.com/app_isaacsim/app_isaacsim/release_notes.html#id10).
 
 ## Tutorial Walkthrough
 
@@ -29,7 +31,7 @@ This tutorial walks you through a pipeline for [Image Segmentation](https://gith
    `omniverse://localhost/NVIDIA/Assets/Isaac/2022.1/Isaac/Samples/ROS2/Scenario/carter_warehouse_apriltags_worker.usd`.
 
    And wait for it to load completely.
-   > **Note:** To use a different server, replace `localhost` with `<your_nucleus_server>`
+   > **Note**: To use a different server, replace `localhost` with `<your_nucleus_server>`
 6. Go to the stage tab and select `/World/Carter_ROS`, then in properties tab -> Transform -> Translate -> X change `-3.0` to `0.0`.
     <div align="center"><img src="../resources/Isaac_sim_set_carter.png" width="400px"/></div>
 
@@ -59,4 +61,4 @@ This tutorial walks you through a pipeline for [Image Segmentation](https://gith
 
     Then inside the `rqt_image_view` GUI, change the topic to `/unet/colored_segmentation_mask` to view a colorized segmentation mask.
 
-    **Note:** The raw segmentation is also published to `/unet/raw_segmentation_mask`. However, the raw pixels correspond to the class labels and so the output is unsuitable for human visual inspection.
+    **Note**: The raw segmentation is also published to `/unet/raw_segmentation_mask`. However, the raw pixels correspond to the class labels and so the output is unsuitable for human visual inspection.
