@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-// Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -43,11 +43,11 @@ constexpr char INPUT_COMPONENT_KEY[] = "segmentation_postprocessor/input_tensor"
 constexpr char INPUT_DEFAULT_TENSOR_FORMAT[] = "nitros_tensor_list_nhwc_rgb_f32";
 constexpr char INPUT_TOPIC_NAME[] = "tensor_sub";
 
-constexpr char RAW_OUTPUT_COMPONENT_KEY[] = "raw_segmentation_mask_vault/vault";
+constexpr char RAW_OUTPUT_COMPONENT_KEY[] = "raw_segmentation_mask_sink/sink";
 constexpr char RAW_OUTPUT_DEFAULT_TENSOR_FORMAT[] = "nitros_image_mono8";
 constexpr char RAW_OUTPUT_TOPIC_NAME[] = "unet/raw_segmentation_mask";
 
-constexpr char COLORED_OUTPUT_COMPONENT_KEY[] = "colored_segmentation_mask_vault/vault";
+constexpr char COLORED_OUTPUT_COMPONENT_KEY[] = "colored_segmentation_mask_sink/sink";
 constexpr char COLORED_OUTPUT_DEFAULT_TENSOR_FORMAT[] = "nitros_image_rgb8";
 constexpr char COLORED_OUTPUT_TOPIC_NAME[] = "unet/colored_segmentation_mask";
 

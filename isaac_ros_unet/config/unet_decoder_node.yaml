@@ -1,6 +1,6 @@
 %YAML 1.2
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -126,41 +126,37 @@ components:
     color_palette: []
     color_segmentation_mask_encoding: "rgb8"
 ---
-name: raw_segmentation_mask_vault
+name: raw_segmentation_mask_sink
 components:
 - name: input_raw_segmentation_mask
   type: nvidia::gxf::DoubleBufferReceiver
   parameters:
-    capacity: 1
+    capacity: 2
     policy: 0
 - type: nvidia::gxf::MessageAvailableSchedulingTerm
   parameters:
     receiver: input_raw_segmentation_mask
     min_size: 1
-- name: vault
-  type: nvidia::gxf::Vault
+- name: sink
+  type: nvidia::isaac_ros::MessageRelay
   parameters:
     source: input_raw_segmentation_mask
-    max_waiting_count: 1
-    drop_waiting: false
 ---
-name: colored_segmentation_mask_vault
+name: colored_segmentation_mask_sink
 components:
 - name: input_colored_segmentation_mask
   type: nvidia::gxf::DoubleBufferReceiver
   parameters:
-    capacity: 1
+    capacity: 2
     policy: 0
 - type: nvidia::gxf::MessageAvailableSchedulingTerm
   parameters:
     receiver: input_colored_segmentation_mask
     min_size: 1
-- name: vault
-  type: nvidia::gxf::Vault
+- name: sink
+  type: nvidia::isaac_ros::MessageRelay
   parameters:
     source: input_colored_segmentation_mask
-    max_waiting_count: 1
-    drop_waiting: false
 ---
 components:
 - type: nvidia::gxf::Connection
@@ -170,7 +166,7 @@ components:
 - type: nvidia::gxf::Connection
   parameters:
     source: segmentation_broadcaster/output_raw_segmentation_mask
-    target: raw_segmentation_mask_vault/input_raw_segmentation_mask
+    target: raw_segmentation_mask_sink/input_raw_segmentation_mask
 - type: nvidia::gxf::Connection
   parameters:
     source: segmentation_broadcaster/output_video_buffer
@@ -178,12 +174,17 @@ components:
 - type: nvidia::gxf::Connection
   parameters:
     source: segmentation_mask_generator/output_colored_segmentation_mask
-    target: colored_segmentation_mask_vault/input_colored_segmentation_mask
+    target: colored_segmentation_mask_sink/input_colored_segmentation_mask
 ---
 components:
 - name: clock
   type: nvidia::gxf::RealtimeClock
-- type: nvidia::gxf::GreedyScheduler
+- type: nvidia::gxf::MultiThreadScheduler
   parameters:
     clock: clock
     stop_on_deadlock: false
+    check_recession_period_ms: 1
+    worker_thread_number: 2
+- type: nvidia::gxf::JobStatistics
+  parameters:
+    clock: clock
