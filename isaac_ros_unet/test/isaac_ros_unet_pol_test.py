@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -74,12 +74,14 @@ def generate_test_description():
 
     encoder_node = ComposableNode(
         name='DnnImageEncoderNode',
-        package='isaac_ros_dnn_encoders',
+        package='isaac_ros_dnn_image_encoder',
         plugin='nvidia::isaac_ros::dnn_inference::DnnImageEncoderNode',
         namespace=IsaacROSUNetPipelineTest.generate_namespace(_TEST_CASE_NAMESPACE),
         parameters=[{
             'network_image_width': 960,
             'network_image_height': 544,
+            'input_image_width': 1200,
+            'input_image_height': 632,
             'tensor_name': 'input_tensor'
         }],
         remappings=[('encoded_tensor', 'tensor_pub')]

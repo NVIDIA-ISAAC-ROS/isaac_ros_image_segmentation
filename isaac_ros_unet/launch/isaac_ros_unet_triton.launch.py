@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2021-2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,6 +25,14 @@ from launch_ros.descriptions import ComposableNode
 def generate_launch_description():
     """Launch the DNN Image encoder, Triton node and UNet decoder node."""
     launch_args = [
+        DeclareLaunchArgument(
+            'input_image_width',
+            default_value='1920',
+            description='The input image width'),
+        DeclareLaunchArgument(
+            'input_image_height',
+            default_value='1080',
+            description='The input image height'),
         DeclareLaunchArgument(
             'network_image_width',
             default_value='960',
@@ -96,6 +104,8 @@ def generate_launch_description():
     ]
 
     # DNN Image Encoder parameters
+    input_image_width = LaunchConfiguration('input_image_width')
+    input_image_height = LaunchConfiguration('input_image_height')
     network_image_width = LaunchConfiguration('network_image_width')
     network_image_height = LaunchConfiguration('network_image_height')
     encoder_image_mean = LaunchConfiguration('encoder_image_mean')
@@ -121,9 +131,11 @@ def generate_launch_description():
     # Parameters preconfigured for PeopleSemSegNet.
     encoder_node = ComposableNode(
         name='dnn_image_encoder',
-        package='isaac_ros_dnn_encoders',
+        package='isaac_ros_dnn_image_encoder',
         plugin='nvidia::isaac_ros::dnn_inference::DnnImageEncoderNode',
         parameters=[{
+            'input_image_width': input_image_width,
+            'input_image_height': input_image_height,
             'network_image_width': network_image_width,
             'network_image_height': network_image_height,
             'image_mean': encoder_image_mean,
