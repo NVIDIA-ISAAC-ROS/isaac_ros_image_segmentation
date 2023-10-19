@@ -31,7 +31,7 @@ find_package(GXF ${ISAAC_ROS_GXF_VERSION} MODULE REQUIRED
     serialization
     std
 )
-include(YamlCpp)
+find_package(yaml-cpp)
 
 # Create extension
 add_library(gxf_segmentation_postprocessor SHARED
