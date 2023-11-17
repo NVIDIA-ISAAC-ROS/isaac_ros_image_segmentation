@@ -63,7 +63,7 @@ def generate_launch_description():
             description='A list of input tensor binding names (specified by model)'),
         DeclareLaunchArgument(
             'input_tensor_formats',
-            default_value='["nitros_tensor_list_nchw_rgb_f32"]',
+            default_value='["nitros_tensor_list_nchw_bgr_f32"]',
             description='The nitros format of the input tensors'),
         DeclareLaunchArgument(
             'output_tensor_names',
@@ -75,7 +75,7 @@ def generate_launch_description():
             description='A  list of output tensor binding names (specified by model)'),
         DeclareLaunchArgument(
             'output_tensor_formats',
-            default_value='["nitros_tensor_list_nhwc_rgb_f32"]',
+            default_value='["nitros_tensor_list_nhwc_bgr_f32"]',
             description='The nitros format of the output tensors'),
         DeclareLaunchArgument(
             'network_output_type',
