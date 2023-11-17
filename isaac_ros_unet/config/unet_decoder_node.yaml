@@ -58,6 +58,10 @@ components:
     network_output_type: softmax
     data_format: NHWC
     cuda_stream_pool: stream
+- type: nvidia::gxf::MemoryAvailableSchedulingTerm
+  parameters:
+    allocator: allocator
+    min_blocks: 1
 ---
 name: segmentation_broadcaster
 components:
