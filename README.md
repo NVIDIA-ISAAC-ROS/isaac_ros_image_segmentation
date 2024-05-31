@@ -1,26 +1,30 @@
 # Isaac ROS Image Segmentation
 
-Hardware-accelerated, deep learned semantic image segmentation
+NVIDIA-accelerated, deep learned semantic image segmentation
 
 <div align="center"><img alt="sample input to image segmentation" src="https://media.githubusercontent.com/media/NVIDIA-ISAAC-ROS/.github/main/resources/isaac_ros_docs/repositories_and_packages/isaac_ros_image_segmentation/isaac_ros_image_segmentation_example.png/" width="320px"/>
 <img alt="sample output from image segmentation" src="https://media.githubusercontent.com/media/NVIDIA-ISAAC-ROS/.github/main/resources/isaac_ros_docs/repositories_and_packages/isaac_ros_image_segmentation/isaac_ros_image_segmentation_example_seg.png/" width="320px"/></div>
 
 ## Overview
 
-[Isaac ROS Image Segmentation](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_image_segmentation) contains a ROS 2 package to produce semantic image segmentation.
-`isaac_ros_unet` provides a method for classification of an input image at the pixel level.
+[Isaac ROS Image Segmentation](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_image_segmentation) contains ROS packages for semantic image segmentation.
+
+These packages provide methods for classification of an input image
+at the pixel level by running GPU-accelerated inference on a DNN model.
 Each pixel of the input image is predicted to belong to a set of defined classes.
-Classification is performed with GPU acceleration running DNN inference on a U-NET architecture model.
 The output prediction can be used by perception functions to understand where each
 class is spatially in a 2D image or fuse with a corresponding depth location in a 3D scene.
 
 <div align="center"><a class="reference internal image-reference" href="https://media.githubusercontent.com/media/NVIDIA-ISAAC-ROS/.github/main/resources/isaac_ros_docs/repositories_and_packages/isaac_ros_image_segmentation/isaac_ros_image_segmentation_nodegraph.png/"><img alt="image" src="https://media.githubusercontent.com/media/NVIDIA-ISAAC-ROS/.github/main/resources/isaac_ros_docs/repositories_and_packages/isaac_ros_image_segmentation/isaac_ros_image_segmentation_nodegraph.png/" width="500px"/></a></div>
 
-A trained model based on
-the [U-NET](https://en.wikipedia.org/wiki/U-Net) architecture is
-required to produce a segmentation mask. Input images may need to be
-cropped and resized to maintain the aspect ratio and match the input
-resolution of the U-NET DNN; image resolution may be reduced to improve
+| Package                                                                                                                                                                  | Model Architecture                                | Description                                                              |
+|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------|--------------------------------------------------------------------------|
+| [Isaac ROS U-NET](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_image_segmentation/isaac_ros_unet/index.html#quickstart)                        | [U-NET](https://en.wikipedia.org/wiki/U-Net)      | Convolutional network popular for biomedical imaging segmentation models |
+| [Isaac ROS Segformer](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_image_segmentation/isaac_ros_segformer/index.html#quickstart)               | [Segformer](https://arxiv.org/abs/2105.15203)     | Transformer-based network that works well for objects of varying scale   |
+| [Isaac ROS Segment Anything](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_image_segmentation/isaac_ros_segment_anything/index.html#quickstart) | [Segment Anything](https://segment-anything.com/) | Segments any object in an image when given a prompt as to which one      |
+
+Input images may need to be cropped and resized to maintain the aspect ratio and match the input
+resolution expected by the DNN model; image resolution may be reduced to improve
 DNN inference performance, which typically scales directly with the
 number of pixels in the image.
 
@@ -40,9 +44,11 @@ This package is powered by [NVIDIA Isaac Transport for ROS (NITROS)](https://dev
 
 ## Performance
 
-| Sample Graph<br/><br/>                                                                                                                                      | Input Size<br/><br/>     | AGX Orin<br/><br/>                                                                                                                                     | Orin NX<br/><br/>                                                                                                                                     | Orin Nano 8GB<br/><br/>                                                                                                                                | x86_64 w/ RTX 4060 Ti<br/><br/>                                                                                                                          |
-|-------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| [TensorRT Graph](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark/blob/main/scripts/isaac_ros_unet_graph.py)<br/><br/><br/>PeopleSemSegNet<br/><br/> | 544p<br/><br/><br/><br/> | [421 fps](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark/blob/main/results/isaac_ros_unet_graph-agx_orin.json)<br/><br/><br/>8.1 ms<br/><br/> | [238 fps](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark/blob/main/results/isaac_ros_unet_graph-orin_nx.json)<br/><br/><br/>9.6 ms<br/><br/> | [162 fps](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark/blob/main/results/isaac_ros_unet_graph-orin_nano.json)<br/><br/><br/>13 ms<br/><br/> | [704 fps](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark/blob/main/results/isaac_ros_unet_graph-nuc_4060ti.json)<br/><br/><br/>5.5 ms<br/><br/> |
+| Sample Graph<br/><br/>                                                                                                                                                                                                                  | Input Size<br/><br/>     | AGX Orin<br/><br/>                                                                                                                                                   | Orin NX<br/><br/>                                                                                                                                                    | Orin Nano 8GB<br/><br/>                                                                                                                                               | x86_64 w/ RTX 4060 Ti<br/><br/>                                                                                                                                       | x86_64 w/ RTX 4090<br/><br/>                                                                                                                                        |
+|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| [SAM Image Segmentation Graph](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark/blob/main/benchmarks/isaac_ros_segment_anything_benchmark/scripts/isaac_ros_segment_anything_graph.py)<br/><br/><br/>Full SAM<br/><br/>          | 720p<br/><br/><br/><br/> | [2.22 fps](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark/blob/main/results/isaac_ros_sam_graph-agx_orin.json)<br/><br/><br/>470 ms @ 30Hz<br/><br/>        | –<br/><br/><br/><br/>                                                                                                                                                | –<br/><br/><br/><br/>                                                                                                                                                 | –<br/><br/><br/><br/>                                                                                                                                                 | [14.6 fps](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark/blob/main/results/isaac_ros_sam_graph-x86_4090.json)<br/><br/><br/>79 ms @ 30Hz<br/><br/>        |
+| [SAM Image Segmentation Graph](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark/blob/main/benchmarks/isaac_ros_segment_anything_benchmark/scripts/isaac_ros_mobile_segment_anything_graph.py)<br/><br/><br/>Mobile SAM<br/><br/> | 720p<br/><br/><br/><br/> | [10.8 fps](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark/blob/main/results/isaac_ros_mobile_sam_graph-agx_orin.json)<br/><br/><br/>880 ms @ 30Hz<br/><br/> | [5.13 fps](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark/blob/main/results/isaac_ros_mobile_sam_graph-orin_nx.json)<br/><br/><br/>1500 ms @ 30Hz<br/><br/> | [2.22 fps](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark/blob/main/results/isaac_ros_mobile_sam_graph-orin_nano.json)<br/><br/><br/>360 ms @ 30Hz<br/><br/> | [27.0 fps](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark/blob/main/results/isaac_ros_mobile_sam_graph-nuc_4060ti.json)<br/><br/><br/>62 ms @ 30Hz<br/><br/> | [60.3 fps](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark/blob/main/results/isaac_ros_mobile_sam_graph-x86_4090.json)<br/><br/><br/>27 ms @ 30Hz<br/><br/> |
+| [TensorRT Graph](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark/blob/main/benchmarks/isaac_ros_unet_benchmark/scripts/isaac_ros_unet_graph.py)<br/><br/><br/>PeopleSemSegNet<br/><br/>                                         | 544p<br/><br/><br/><br/> | [371 fps](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark/blob/main/results/isaac_ros_unet_graph-agx_orin.json)<br/><br/><br/>19 ms @ 30Hz<br/><br/>         | [250 fps](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark/blob/main/results/isaac_ros_unet_graph-orin_nx.json)<br/><br/><br/>20 ms @ 30Hz<br/><br/>          | [163 fps](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark/blob/main/results/isaac_ros_unet_graph-orin_nano.json)<br/><br/><br/>23 ms @ 30Hz<br/><br/>         | [670 fps](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark/blob/main/results/isaac_ros_unet_graph-nuc_4060ti.json)<br/><br/><br/>11 ms @ 30Hz<br/><br/>        | [688 fps](https://github.com/NVIDIA-ISAAC-ROS/isaac_ros_benchmark/blob/main/results/isaac_ros_unet_graph-x86_4090.json)<br/><br/><br/>9.3 ms @ 30Hz<br/><br/>       |
 
 ---
 
@@ -54,6 +60,16 @@ Please visit the [Isaac ROS Documentation](https://nvidia-isaac-ros.github.io/re
 
 ## Packages
 
+* [`isaac_ros_segformer`](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_image_segmentation/isaac_ros_segformer/index.html)
+  * [Quickstart](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_image_segmentation/isaac_ros_segformer/index.html#quickstart)
+  * [Try More Examples](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_image_segmentation/isaac_ros_segformer/index.html#try-more-examples)
+  * [Troubleshooting](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_image_segmentation/isaac_ros_segformer/index.html#troubleshooting)
+  * [API](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_image_segmentation/isaac_ros_segformer/index.html#api)
+* [`isaac_ros_segment_anything`](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_image_segmentation/isaac_ros_segment_anything/index.html)
+  * [Quickstart](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_image_segmentation/isaac_ros_segment_anything/index.html#quickstart)
+  * [Try More Examples](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_image_segmentation/isaac_ros_segment_anything/index.html#try-more-examples)
+  * [Troubleshooting](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_image_segmentation/isaac_ros_segment_anything/index.html#troubleshooting)
+  * [API](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_image_segmentation/isaac_ros_segment_anything/index.html#api)
 * [`isaac_ros_unet`](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_image_segmentation/isaac_ros_unet/index.html)
   * [Quickstart](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_image_segmentation/isaac_ros_unet/index.html#quickstart)
   * [Try More Examples](https://nvidia-isaac-ros.github.io/repositories_and_packages/isaac_ros_image_segmentation/isaac_ros_unet/index.html#try-more-examples)
@@ -62,4 +78,4 @@ Please visit the [Isaac ROS Documentation](https://nvidia-isaac-ros.github.io/re
 
 ## Latest
 
-Update 2023-10-18: Updated for Isaac ROS 2.0.0.
+Update 2024-05-30: Add SegFormer and Segment Anything packages

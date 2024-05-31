@@ -1,0 +1,66 @@
+%YAML 1.2
+# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+#
+# NVIDIA CORPORATION and its licensors retain all intellectual property
+# and proprietary rights in and to this software, related documentation
+# and any modifications thereto.  Any use, reproduction, disclosure or
+# distribution of this software and related documentation without an express
+# license agreement from NVIDIA CORPORATION is strictly prohibited.
+---
+id: [0xa3ed574714ef4f11, 0xc127090d5b35a477]
+name: SegmentAnythingExtension
+version: 0.2.0
+components:
+  - id: [0xe9681b9e1b864123, 0x8fc86530f45f9ab2]
+    type: nvidia::isaac_ros::SegmentAnythingPostprocessor
+    input_output_groups:
+      - input_keys: [in]
+        output_keys: [out]
+        input_format_keys: [data_format]
+        output_format_keys: []
+        supported_formats:
+          - platforms: [any]
+            details:
+              - input_formats: [nitros_tensor_list_nchw_rgb_f32]
+                output_formats: [nitros_tensor_list_nchw]
+                costs:
+                  throughput: 10bytes/s
+                  latency: 10ms
+                  power: 100J
+                  accuracy: 100%
+  - id: [0xe8211b9e1b864ab1, 0x2de86530f45f9cd3]
+    type: nvidia::isaac_ros::SegmentAnythingPromptProcessor
+    input_output_groups:
+      - input_keys: [in]
+        output_keys: [out_points]
+        input_format_keys: []
+        output_format_keys: []
+        supported_formats:
+          - platforms: [any]
+            details:
+              - input_formats: [nitros_detection2_d_array]
+                output_formats: [nitros_tensor_list_nchw]
+                costs:
+                  throughput: 10bytes/s
+                  latency: 10ms
+                  power: 100J
+                  accuracy: 100%
+  - id: [0xe12acb9e1b8642ba, 0x34c86170f32f9abc]
+    type: nvidia::isaac_ros::SegmentAnythingMsgCompositor
+    input_output_groups:
+      - input_keys: []
+        output_keys: []
+        input_format_keys: []
+        output_format_keys: []
+        supported_formats:
+          - platforms: [any]
+            details:
+              - input_formats: []
+                output_formats: []
+                costs:
+                  throughput: 10bytes/s
+                  latency: 10ms
+                  power: 100J
+                  accuracy: 100%
+
+

@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ from launch_ros.descriptions import ComposableNode
 
 
 def generate_launch_description():
-    """Launch the DNN Image encoder, Triton node and UNet decoder node."""
+    """Launch the DNN Image encoder, Triton node and UNet decoder node for Isaac Sim."""
     launch_args = [
         DeclareLaunchArgument(
             'input_image_width',
@@ -35,7 +35,7 @@ def generate_launch_description():
             description='The input image width'),
         DeclareLaunchArgument(
             'input_image_height',
-            default_value='1080',
+            default_value='1200',
             description='The input image height'),
         DeclareLaunchArgument(
             'network_image_width',
@@ -54,16 +54,16 @@ def generate_launch_description():
             default_value='[0.5, 0.5, 0.5]',
             description='The standard deviation for image normalization'),
         DeclareLaunchArgument(
-            'model_name',
+            'model_file_path',
             default_value='',
             description='The name of the model'),
         DeclareLaunchArgument(
-            'model_repository_paths',
+            'engine_file_path',
             default_value='[""]',
             description='The absolute path to the repository of models'),
         DeclareLaunchArgument(
-            'max_batch_size',
-            default_value='0',
+            'tensorrt_verbose',
+            default_value='False',
             description='The maximum allowed batch size of the model'),
         DeclareLaunchArgument(
             'input_tensor_names',
@@ -71,7 +71,7 @@ def generate_launch_description():
             description='A list of tensor names to bound to the specified input binding names'),
         DeclareLaunchArgument(
             'input_binding_names',
-            default_value='["input_1"]',
+            default_value='["input_2:0"]',
             description='A list of input tensor binding names (specified by model)'),
         DeclareLaunchArgument(
             'input_tensor_formats',
@@ -83,7 +83,7 @@ def generate_launch_description():
             description='A list of tensor names to bound to the specified output binding names'),
         DeclareLaunchArgument(
             'output_binding_names',
-            default_value='["softmax_1"]',
+            default_value='["argmax_1"]',
             description='A  list of output tensor binding names (specified by model)'),
         DeclareLaunchArgument(
             'output_tensor_formats',
@@ -91,7 +91,7 @@ def generate_launch_description():
             description='The nitros format of the output tensors'),
         DeclareLaunchArgument(
             'network_output_type',
-            default_value='softmax',
+            default_value='argmax',
             description='The output type that the network provides (softmax, sigmoid or argmax)'),
         DeclareLaunchArgument(
             'color_segmentation_mask_encoding',
@@ -116,9 +116,9 @@ def generate_launch_description():
     encoder_image_stddev = LaunchConfiguration('encoder_image_stddev')
 
     # Triton parameters
-    model_name = LaunchConfiguration('model_name')
-    model_repository_paths = LaunchConfiguration('model_repository_paths')
-    max_batch_size = LaunchConfiguration('max_batch_size')
+    model_file_path = LaunchConfiguration('model_file_path')
+    engine_file_path = LaunchConfiguration('engine_file_path')
+    tensorrt_verbose = LaunchConfiguration('tensorrt_verbose')
     input_tensor_names = LaunchConfiguration('input_tensor_names')
     input_binding_names = LaunchConfiguration('input_binding_names')
     input_tensor_formats = LaunchConfiguration('input_tensor_formats')
@@ -128,7 +128,8 @@ def generate_launch_description():
 
     # U-Net Decoder parameters
     network_output_type = LaunchConfiguration('network_output_type')
-    color_segmentation_mask_encoding = LaunchConfiguration('color_segmentation_mask_encoding')
+    color_segmentation_mask_encoding = LaunchConfiguration(
+        'color_segmentation_mask_encoding')
     mask_width = LaunchConfiguration('mask_width')
     mask_height = LaunchConfiguration('mask_height')
 
@@ -136,7 +137,8 @@ def generate_launch_description():
     encoder_dir = get_package_share_directory('isaac_ros_dnn_image_encoder')
     encoder_node_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            [os.path.join(encoder_dir, 'launch', 'dnn_image_encoder.launch.py')]
+            [os.path.join(encoder_dir, 'launch',
+                          'dnn_image_encoder.launch.py')]
         ),
         launch_arguments={
             'input_image_width': input_image_width,
@@ -146,28 +148,29 @@ def generate_launch_description():
             'image_mean': encoder_image_mean,
             'image_stddev': encoder_image_stddev,
             'enable_padding': 'True',
-            'image_input_topic': '/image',
-            'camera_info_input_topic': '/camera_info',
+            'image_input_topic': '/front_stereo_camera/left_rgb/image_raw',
+            'camera_info_input_topic': '/front_stereo_camera/left_rgb/camerainfo',
             'tensor_output_topic': '/tensor_pub',
             'attach_to_shared_component_container': 'True',
             'component_container_name': 'unet_container',
         }.items(),
     )
 
-    triton_node = ComposableNode(
-        name='triton_node',
-        package='isaac_ros_triton',
-        plugin='nvidia::isaac_ros::dnn_inference::TritonNode',
+    tensor_rt_node = ComposableNode(
+        name='unet_inference',
+        package='isaac_ros_tensor_rt',
+        plugin='nvidia::isaac_ros::dnn_inference::TensorRTNode',
         parameters=[{
-            'model_name': model_name,
-            'model_repository_paths': model_repository_paths,
-            'max_batch_size': max_batch_size,
+            'model_file_path': model_file_path,
+            'engine_file_path': engine_file_path,
             'input_tensor_names': input_tensor_names,
             'input_binding_names': input_binding_names,
             'input_tensor_formats': input_tensor_formats,
             'output_tensor_names': output_tensor_names,
             'output_binding_names': output_binding_names,
             'output_tensor_formats': output_tensor_formats,
+            'verbose': tensorrt_verbose,
+            'force_engine_update': False
         }])
 
     unet_decoder_node = ComposableNode(
@@ -189,7 +192,7 @@ def generate_launch_description():
         namespace='',
         package='rclcpp_components',
         executable='component_container_mt',
-        composable_node_descriptions=[triton_node, unet_decoder_node],
+        composable_node_descriptions=[tensor_rt_node, unet_decoder_node],
         output='screen'
     )
 

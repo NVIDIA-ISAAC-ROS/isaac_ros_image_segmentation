@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2023-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Proof-Of-Life test for the Isaac ROS U-Net package.
+Proof-Of-Life test for the Isaac ROS Segformer package.
 
     1. Sets up DnnImageEncoderNode, TensorRTNode, UNetDecoderNode
     2. Loads a sample image and publishes it
@@ -47,7 +47,7 @@ import rclpy
 
 from sensor_msgs.msg import CameraInfo, Image
 
-_TEST_CASE_NAMESPACE = 'unet_node_test'
+_TEST_CASE_NAMESPACE = 'segformer_node_test'
 
 
 def generate_random_color_palette(num_classes):
@@ -82,13 +82,14 @@ def generate_test_description():
         launch_arguments={
             'input_image_width': '1200',
             'input_image_height': '632',
-            'network_image_width': '960',
-            'network_image_height': '544',
+            'network_image_width': '512',
+            'network_image_height': '512',
             'enable_padding': 'True',
+            'final_tensor_name': 'input_tensor',
             'tensor_output_topic': 'tensor_pub',
             'attach_to_shared_component_container': 'True',
             'component_container_name': 'unet_container',
-            'dnn_image_encoder_namespace': IsaacROSUNetPipelineTest.generate_namespace(
+            'dnn_image_encoder_namespace': IsaacROSSegformerPipelineTest.generate_namespace(
                 _TEST_CASE_NAMESPACE),
         }.items(),
     )
@@ -97,23 +98,28 @@ def generate_test_description():
         name='TensorRTNode',
         package='isaac_ros_tensor_rt',
         plugin='nvidia::isaac_ros::dnn_inference::TensorRTNode',
-        namespace=IsaacROSUNetPipelineTest.generate_namespace(_TEST_CASE_NAMESPACE),
+        namespace=IsaacROSSegformerPipelineTest.generate_namespace(_TEST_CASE_NAMESPACE),
         parameters=[{
             'model_file_path': model_file_path,
             'engine_file_path': '/tmp/trt_engine.plan',
             'input_tensor_names': ['input_tensor'],
-            'input_binding_names': ['input_1'],
+            'input_binding_names': ['input'],
             'output_tensor_names': ['output_tensor'],
-            'output_binding_names': ['softmax_1'],
+            'output_binding_names': ['output'],
             'verbose': False,
             'force_engine_update': False,
+            'max_workspace_size': 104857600,
+            'output_tensor_formats': ['nitros_tensor_list_nchw_rgb_f32'],
+            'input_tensor_formats': ['nitros_tensor_list_nchw_rgb_f32']
         }])
-    unet_decoder_node = ComposableNode(
-        name='UNetDecoderNode',
+
+    segformer_decoder_node = ComposableNode(
+        name='SegformerDecoderNode',
         package='isaac_ros_unet',
         plugin='nvidia::isaac_ros::unet::UNetDecoderNode',
-        namespace=IsaacROSUNetPipelineTest.generate_namespace(_TEST_CASE_NAMESPACE),
+        namespace=IsaacROSSegformerPipelineTest.generate_namespace(_TEST_CASE_NAMESPACE),
         parameters=[{
+            'network_output_type': 'argmax',
             'color_segmentation_mask_encoding': 'rgb8',
             'color_palette': generate_random_color_palette(20),  # 20 classes
         }])
@@ -123,22 +129,22 @@ def generate_test_description():
         namespace='',
         package='rclcpp_components',
         executable='component_container_mt',
-        composable_node_descriptions=[tensorrt_node, unet_decoder_node],
+        composable_node_descriptions=[tensorrt_node, segformer_decoder_node],
         output='screen'
     )
 
-    return IsaacROSUNetPipelineTest.generate_test_description([
+    return IsaacROSSegformerPipelineTest.generate_test_description([
         container, encoder_node_launch,
         launch.actions.TimerAction(
             period=2.5, actions=[launch_testing.actions.ReadyToTest()])
     ])
 
 
-class IsaacROSUNetPipelineTest(IsaacROSBaseTest):
+class IsaacROSSegformerPipelineTest(IsaacROSBaseTest):
     """Validates a U-Net model with randomized weights with a sample output from Python."""
 
     filepath = pathlib.Path(os.path.dirname(__file__))
-    MODEL_GENERATION_TIMEOUT_SEC = 600
+    MODEL_GENERATION_TIMEOUT_SEC = 300
     INIT_WAIT_SEC = 10
     MODEL_PATH = '/tmp/trt_engine.plan'
 
@@ -169,15 +175,16 @@ class IsaacROSUNetPipelineTest(IsaacROSBaseTest):
              'unet/colored_segmentation_mask'], _TEST_CASE_NAMESPACE)
         image_pub = self.node.create_publisher(Image, self.namespaces['image'], self.DEFAULT_QOS)
         camera_info_pub = self.node.create_publisher(
-            CameraInfo, self.namespaces['camera_info'], self.DEFAULT_QOS)
+            CameraInfo, self.namespaces['camera_info'], self.DEFAULT_QOS
+        )
         received_messages = {}
         segmentation_mask_sub, color_segmentation_mask_sub = self.create_logging_subscribers(
             [('unet/raw_segmentation_mask', Image),
              ('unet/colored_segmentation_mask', Image)
              ], received_messages, accept_multiple_messages=True)
 
-        EXPECTED_HEIGHT = 544
-        EXPECTED_WIDTH = 960
+        EXPECTED_HEIGHT = 512
+        EXPECTED_WIDTH = 512
 
         try:
             image = JSONConversion.load_image_from_json(test_folder / 'image.json')
