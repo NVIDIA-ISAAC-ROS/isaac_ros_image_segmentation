@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-// Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,8 +15,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef ISAAC_ROS_UNET__UNET_DECODER_NODE_HPP_
-#define ISAAC_ROS_UNET__UNET_DECODER_NODE_HPP_
+#ifndef ISAAC_ROS_SEGMENT_ANYTHING__SEGMENT_ANYTHING_DECODER_NODE_HPP_
+#define ISAAC_ROS_SEGMENT_ANYTHING__SEGMENT_ANYTHING_DECODER_NODE_HPP_
 
 #include <memory>
 #include <string>
@@ -29,39 +29,29 @@ namespace nvidia
 {
 namespace isaac_ros
 {
-namespace unet
+namespace segment_anything
 {
 
-class UNetDecoderNode : public nitros::NitrosNode
+class SegmentAnythingDecoderNode : public nitros::NitrosNode
 {
 public:
-  explicit UNetDecoderNode(const rclcpp::NodeOptions options = rclcpp::NodeOptions());
-  ~UNetDecoderNode();
+  explicit SegmentAnythingDecoderNode(const rclcpp::NodeOptions options = rclcpp::NodeOptions());
+  ~SegmentAnythingDecoderNode();
 
   void postLoadGraphCallback() override;
 
 private:
-  // The color encoding that the colored segmentation mask should be in
-  // This should be either rgb8 or bgr8
-  std::string color_segmentation_mask_encoding_;
-
-  // The color palette for the color segmentation mask
-  // There should be an element for each class
-  // Note: only the first 24 bits are used
-  std::vector<int64_t> color_palette_;
-
-  // Whether sigmoid or softmax was performed by the network
-  std::string network_output_type_;
-
-  // The width of the segmentation mask
   int16_t mask_width_;
 
   // The height of the segmentation mask
   int16_t mask_height_;
+
+  // Needed to calculate block size. It is max batch size for prompt bboxes
+  int16_t max_batch_size_;
 };
 
-}  // namespace unet
+}  // namespace segment_anything
 }  // namespace isaac_ros
 }  // namespace nvidia
 
-#endif  // ISAAC_ROS_UNET__UNET_DECODER_NODE_HPP_
+#endif  // ISAAC_ROS_SEGMENT_ANYTHING__SEGMENT_ANYTHING_DECODER_NODE_HPP_

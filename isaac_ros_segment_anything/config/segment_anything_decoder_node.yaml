@@ -1,0 +1,94 @@
+%YAML 1.2
+# SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
+# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+---
+name: segmentation_postprocessor
+components:
+- name: input_tensor
+  type: nvidia::gxf::DoubleBufferReceiver
+  parameters:
+    capacity: 12
+- type: nvidia::gxf::MessageAvailableSchedulingTerm
+  parameters:
+    receiver: input_tensor
+    min_size: 1
+- name: output_buffer
+  type: nvidia::gxf::DoubleBufferTransmitter
+  parameters:
+    capacity: 12
+- type: nvidia::gxf::DownstreamReceptiveSchedulingTerm
+  parameters:
+    transmitter: output_buffer
+    min_size: 1
+- name: allocator
+  type: nvidia::gxf::BlockMemoryPool
+  parameters:
+    storage_type: 1
+    block_size: 522240
+    num_blocks: 40
+- name: stream
+  type: nvidia::gxf::CudaStreamPool
+  parameters:
+    dev_id: 0
+    stream_flags: 0
+    stream_priority: 0
+    reserved_size: 1
+    max_size: 5
+- type: nvidia::isaac_ros::SegmentAnythingPostprocessor
+  parameters:
+    in: input_tensor
+    out: output_buffer
+    allocator: allocator
+    cuda_stream_pool: stream
+- type: nvidia::gxf::MemoryAvailableSchedulingTerm
+  parameters:
+    allocator: allocator
+    min_blocks: 1
+---
+name: raw_segmentation_mask_sink
+components:
+- name: input_raw_segmentation_mask
+  type: nvidia::gxf::DoubleBufferReceiver
+  parameters:
+    capacity: 2
+- type: nvidia::gxf::MessageAvailableSchedulingTerm
+  parameters:
+    receiver: input_raw_segmentation_mask
+    min_size: 1
+- name: sink
+  type: nvidia::isaac_ros::MessageRelay
+  parameters:
+    source: input_raw_segmentation_mask
+---
+components:
+- type: nvidia::gxf::Connection
+  parameters:
+    source: segmentation_postprocessor/output_buffer
+    target: raw_segmentation_mask_sink/input_raw_segmentation_mask
+---
+components:
+- name: clock
+  type: nvidia::gxf::RealtimeClock
+- type: nvidia::gxf::MultiThreadScheduler
+  parameters:
+    clock: clock
+    stop_on_deadlock: false
+    check_recession_period_ms: 1
+    worker_thread_number: 2
+- type: nvidia::gxf::JobStatistics
+  parameters:
+    clock: clock

@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2022-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,8 +15,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import os
+
+from ament_index_python.packages import get_package_share_directory
 import launch
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import ComposableNodeContainer
 from launch_ros.descriptions import ComposableNode
@@ -134,27 +138,30 @@ def generate_launch_description():
         }],
         remappings=[
             ('image_raw', 'left/image_raw'),
-            ('camera_info', 'left/camerainfo')
+            ('camera_info', 'left/camera_info')
         ]
     )
 
     # Parameters preconfigured for PeopleSemSegNet.
-    encoder_node = ComposableNode(
-        name='dnn_image_encoder',
-        package='isaac_ros_dnn_image_encoder',
-        plugin='nvidia::isaac_ros::dnn_inference::DnnImageEncoderNode',
-        parameters=[{
-            'input_image_width': 1920,
-            'input_image_height': 1200,
+    encoder_dir = get_package_share_directory('isaac_ros_dnn_image_encoder')
+    encoder_node_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            [os.path.join(encoder_dir, 'launch', 'dnn_image_encoder.launch.py')]
+        ),
+        launch_arguments={
+            'input_image_width': str(1920),
+            'input_image_height': str(1200),
             'network_image_width': network_image_width,
-            'network_image_height': network_image_height,
+            'network_image_height':  network_image_height,
             'image_mean': encoder_image_mean,
             'image_stddev': encoder_image_stddev,
-        }],
-        remappings=[
-            ('image', 'image_rect'),
-            ('encoded_tensor', 'tensor_pub'),
-        ]
+            'enable_padding': 'True',
+            'image_input_topic': '/image_rect',
+            'camera_info_input_topic': '/camera_info_rect',
+            'tensor_output_topic': '/tensor_pub',
+            'attach_to_shared_component_container': 'True',
+            'component_container_name': 'unet_container',
+        }.items(),
     )
 
     triton_node = ComposableNode(
@@ -194,9 +201,9 @@ def generate_launch_description():
         executable='component_container_mt',
         composable_node_descriptions=[
             argus_mono_node, rectify_node,
-            encoder_node, triton_node, unet_decoder_node],
+            triton_node, unet_decoder_node],
         output='screen'
     )
 
-    final_launch_description = launch_args + [container]
+    final_launch_description = launch_args + [container, encoder_node_launch]
     return launch.LaunchDescription(final_launch_description)

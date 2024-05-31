@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ from launch_ros.descriptions import ComposableNode
 
 
 def generate_launch_description():
-    """Launch the DNN Image encoder, Triton node and UNet decoder node."""
+    """Launch the DNN Image encoder, Triton node and Segformer decoder node."""
     launch_args = [
         DeclareLaunchArgument(
             'input_image_width',
@@ -35,15 +35,15 @@ def generate_launch_description():
             description='The input image width'),
         DeclareLaunchArgument(
             'input_image_height',
-            default_value='1080',
+            default_value='1200',
             description='The input image height'),
         DeclareLaunchArgument(
             'network_image_width',
-            default_value='960',
+            default_value='512',
             description='The input image width that the network expects'),
         DeclareLaunchArgument(
             'network_image_height',
-            default_value='544',
+            default_value='512',
             description='The input image height that the network expects'),
         DeclareLaunchArgument(
             'encoder_image_mean',
@@ -71,11 +71,11 @@ def generate_launch_description():
             description='A list of tensor names to bound to the specified input binding names'),
         DeclareLaunchArgument(
             'input_binding_names',
-            default_value='["input_1"]',
+            default_value='["input"]',
             description='A list of input tensor binding names (specified by model)'),
         DeclareLaunchArgument(
             'input_tensor_formats',
-            default_value='["nitros_tensor_list_nchw_bgr_f32"]',
+            default_value='["nitros_tensor_list_nchw_rgb_f32"]',
             description='The nitros format of the input tensors'),
         DeclareLaunchArgument(
             'output_tensor_names',
@@ -83,15 +83,15 @@ def generate_launch_description():
             description='A list of tensor names to bound to the specified output binding names'),
         DeclareLaunchArgument(
             'output_binding_names',
-            default_value='["softmax_1"]',
+            default_value='["output"]',
             description='A  list of output tensor binding names (specified by model)'),
         DeclareLaunchArgument(
             'output_tensor_formats',
-            default_value='["nitros_tensor_list_nhwc_bgr_f32"]',
+            default_value='["nitros_tensor_list_nchw_rgb_f32"]',
             description='The nitros format of the output tensors'),
         DeclareLaunchArgument(
             'network_output_type',
-            default_value='softmax',
+            default_value='argmax',
             description='The output type that the network provides (softmax, sigmoid or argmax)'),
         DeclareLaunchArgument(
             'color_segmentation_mask_encoding',
@@ -99,11 +99,11 @@ def generate_launch_description():
             description='The image encoding of the colored segmentation mask (rgb8 or bgr8)'),
         DeclareLaunchArgument(
             'mask_width',
-            default_value='960',
+            default_value='512',
             description='The width of the segmentation mask'),
         DeclareLaunchArgument(
             'mask_height',
-            default_value='544',
+            default_value='512',
             description='The height of the segmentation mask'),
     ]
 
@@ -128,15 +128,19 @@ def generate_launch_description():
 
     # U-Net Decoder parameters
     network_output_type = LaunchConfiguration('network_output_type')
-    color_segmentation_mask_encoding = LaunchConfiguration('color_segmentation_mask_encoding')
+    color_segmentation_mask_encoding = LaunchConfiguration(
+        'color_segmentation_mask_encoding')
     mask_width = LaunchConfiguration('mask_width')
     mask_height = LaunchConfiguration('mask_height')
+
+    container_name = 'segformer_container'
 
     # Parameters preconfigured for PeopleSemSegNet.
     encoder_dir = get_package_share_directory('isaac_ros_dnn_image_encoder')
     encoder_node_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            [os.path.join(encoder_dir, 'launch', 'dnn_image_encoder.launch.py')]
+            [os.path.join(encoder_dir, 'launch',
+                          'dnn_image_encoder.launch.py')]
         ),
         launch_arguments={
             'input_image_width': input_image_width,
@@ -146,11 +150,11 @@ def generate_launch_description():
             'image_mean': encoder_image_mean,
             'image_stddev': encoder_image_stddev,
             'enable_padding': 'True',
-            'image_input_topic': '/image',
-            'camera_info_input_topic': '/camera_info',
+            'image_input_topic': '/front_stereo_camera/left_rgb/image_raw',
+            'camera_info_input_topic': '/front_stereo_camera/left_rgb/camerainfo',
             'tensor_output_topic': '/tensor_pub',
             'attach_to_shared_component_container': 'True',
-            'component_container_name': 'unet_container',
+            'component_container_name': container_name,
         }.items(),
     )
 
@@ -170,8 +174,8 @@ def generate_launch_description():
             'output_tensor_formats': output_tensor_formats,
         }])
 
-    unet_decoder_node = ComposableNode(
-        name='unet_decoder_node',
+    segformer_decoder_node = ComposableNode(
+        name='segformer_decoder_node',
         package='isaac_ros_unet',
         plugin='nvidia::isaac_ros::unet::UNetDecoderNode',
         parameters=[{
@@ -182,14 +186,19 @@ def generate_launch_description():
             'color_palette': [0x556B2F, 0x800000, 0x008080, 0x000080, 0x9ACD32, 0xFF0000, 0xFF8C00,
                               0xFFD700, 0x00FF00, 0xBA55D3, 0x00FA9A, 0x00FFFF, 0x0000FF, 0xF08080,
                               0xFF00FF, 0x1E90FF, 0xDDA0DD, 0xFF1493, 0x87CEFA, 0xFFDEAD],
-        }])
+        }],
+        remappings=[
+            ('unet/colored_segmentation_mask',
+             'segformer/colored_segmentation_mask'),
+            ('unet/raw_segmentation_mask', 'segformer/raw_segmentation_mask')
+        ])
 
     container = ComposableNodeContainer(
-        name='unet_container',
+        name=container_name,
         namespace='',
         package='rclcpp_components',
         executable='component_container_mt',
-        composable_node_descriptions=[triton_node, unet_decoder_node],
+        composable_node_descriptions=[triton_node, segformer_decoder_node],
         output='screen'
     )
 

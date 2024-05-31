@@ -1,0 +1,204 @@
+%YAML 1.2
+# SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
+# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+---
+name: sync
+components:
+- name: image_receiver
+  type: nvidia::gxf::DoubleBufferReceiver
+  parameters:
+    capacity: 12
+- type: nvidia::gxf::MessageAvailableSchedulingTerm
+  parameters:
+    receiver: image_receiver
+    min_size: 1
+- name: prompt_receiver
+  type: nvidia::gxf::DoubleBufferReceiver
+  parameters:
+    capacity: 12
+- type: nvidia::gxf::MessageAvailableSchedulingTerm
+  parameters:
+    receiver: prompt_receiver
+    min_size: 1
+- name: mask_receiver
+  type: nvidia::gxf::DoubleBufferReceiver
+  parameters:
+    capacity: 12
+- type: nvidia::gxf::MessageAvailableSchedulingTerm
+  parameters:
+    receiver: mask_receiver
+    min_size: 1
+- name: image_transmitter
+  type: nvidia::gxf::DoubleBufferTransmitter
+  parameters:
+    capacity: 12
+- type: nvidia::gxf::DownstreamReceptiveSchedulingTerm
+  parameters:
+    transmitter: image_transmitter
+    min_size: 1
+- name: prompt_transmitter
+  type: nvidia::gxf::DoubleBufferTransmitter
+  parameters:
+    capacity: 12
+- type: nvidia::gxf::DownstreamReceptiveSchedulingTerm
+  parameters:
+    transmitter: prompt_transmitter
+    min_size: 1
+- name: mask_transmitter
+  type: nvidia::gxf::DoubleBufferTransmitter
+  parameters:
+    capacity: 12
+- type: nvidia::gxf::DownstreamReceptiveSchedulingTerm
+  parameters:
+    transmitter: mask_transmitter
+    min_size: 1
+- type: nvidia::gxf::Synchronization
+  parameters:
+    inputs: [image_receiver, prompt_receiver, mask_receiver]
+    outputs: [image_transmitter, prompt_transmitter, mask_transmitter]
+---
+name: prompt_processor
+components:
+- name: input_prompt
+  type: nvidia::gxf::DoubleBufferReceiver
+  parameters:
+    capacity: 12
+- type: nvidia::gxf::MessageAvailableSchedulingTerm
+  parameters:
+    receiver: input_prompt
+    min_size: 1
+- name: output_buffer
+  type: nvidia::gxf::DoubleBufferTransmitter
+  parameters:
+    capacity: 12
+- type: nvidia::gxf::DownstreamReceptiveSchedulingTerm
+  parameters:
+    transmitter: output_buffer
+    min_size: 1
+- name: allocator
+  type: nvidia::gxf::BlockMemoryPool
+  parameters:
+    storage_type: 1
+    block_size: 2048
+    num_blocks: 200
+- type: nvidia::isaac_ros::SegmentAnythingPromptProcessor
+  parameters:
+    in: input_prompt
+    out_points: output_buffer
+    allocator: allocator
+- type: nvidia::gxf::MemoryAvailableSchedulingTerm
+  parameters:
+    allocator: allocator
+    min_blocks: 1
+---
+name: message_compositor
+components:
+- name: input_prompt
+  type: nvidia::gxf::DoubleBufferReceiver
+  parameters:
+    capacity: 12
+- type: nvidia::gxf::MessageAvailableSchedulingTerm
+  parameters:
+    receiver: input_prompt
+    min_size: 1
+- name: input_image
+  type: nvidia::gxf::DoubleBufferReceiver
+  parameters:
+    capacity: 12
+- type: nvidia::gxf::MessageAvailableSchedulingTerm
+  parameters:
+    receiver: input_image
+    min_size: 1
+- name: input_mask
+  type: nvidia::gxf::DoubleBufferReceiver
+  parameters:
+    capacity: 12
+- type: nvidia::gxf::MessageAvailableSchedulingTerm
+  parameters:
+    receiver: input_mask
+    min_size: 1
+- name: output_buffer
+  type: nvidia::gxf::DoubleBufferTransmitter
+  parameters:
+    capacity: 12
+- type: nvidia::gxf::DownstreamReceptiveSchedulingTerm
+  parameters:
+    transmitter: output_buffer
+    min_size: 1
+- type: nvidia::isaac_ros::SegmentAnythingMsgCompositor
+  parameters:
+    inputs: [input_prompt, input_image, input_mask]
+    output: output_buffer
+---
+name: sink
+components:
+- name: input
+  type: nvidia::gxf::DoubleBufferReceiver
+  parameters:
+    capacity: 2
+- type: nvidia::gxf::MessageAvailableSchedulingTerm
+  parameters:
+    receiver: input
+    min_size: 1
+- name: output
+  type: nvidia::isaac_ros::MessageRelay
+  parameters:
+    source: input
+---
+components:
+- type: nvidia::gxf::Connection
+  parameters:
+    source: sync/prompt_transmitter
+    target: prompt_processor/input_prompt
+---
+components:
+- type: nvidia::gxf::Connection
+  parameters:
+    source: prompt_processor/output_buffer
+    target: message_compositor/input_prompt
+---
+components:
+- type: nvidia::gxf::Connection
+  parameters:
+    source: sync/image_transmitter
+    target: message_compositor/input_image
+---
+components:
+- type: nvidia::gxf::Connection
+  parameters:
+    source: sync/mask_transmitter
+    target: message_compositor/input_mask
+
+---
+components:
+- type: nvidia::gxf::Connection
+  parameters:
+    source: message_compositor/output_buffer
+    target: sink/input
+---
+components:
+- name: clock
+  type: nvidia::gxf::RealtimeClock
+- type: nvidia::gxf::MultiThreadScheduler
+  parameters:
+    clock: clock
+    stop_on_deadlock: false
+    check_recession_period_ms: 1
+    worker_thread_number: 2
+- type: nvidia::gxf::JobStatistics
+  parameters:
+    clock: clock

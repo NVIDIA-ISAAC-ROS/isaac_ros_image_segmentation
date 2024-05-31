@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-// Copyright (c) 2021-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/image_encodings.hpp"
+#include "isaac_ros_common/qos.hpp"
 #include "isaac_ros_nitros_image_type/nitros_image.hpp"
 #include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list.hpp"
 
@@ -57,7 +58,7 @@ constexpr char PACKAGE_NAME[] = "isaac_ros_unet";
 const std::vector<std::pair<std::string, std::string>> EXTENSIONS = {
   {"isaac_ros_gxf", "gxf/lib/std/libgxf_std.so"},
   {"isaac_ros_gxf", "gxf/lib/cuda/libgxf_cuda.so"},
-  {"isaac_ros_unet", "gxf/libgxf_segmentation_postprocessor.so"}};
+  {"gxf_isaac_ros_unet", "gxf/lib/libgxf_isaac_ros_unet.so"}};
 const std::vector<std::string> PRESET_EXTENSION_SPEC_NAMES = {
   "isaac_ros_unet",
 };
@@ -125,6 +126,16 @@ UNetDecoderNode::UNetDecoderNode(const rclcpp::NodeOptions options)
   mask_width_(declare_parameter<int16_t>("mask_width", 960)),
   mask_height_(declare_parameter<int16_t>("mask_height", 544))
 {
+  rclcpp::QoS input_qos = ::isaac_ros::common::AddQosParameter(*this, "DEFAULT", "input_qos");
+  rclcpp::QoS output_qos = ::isaac_ros::common::AddQosParameter(*this, "DEFAULT", "output_qos");
+  for (auto & config : config_map_) {
+    if (config.second.topic_name == INPUT_TOPIC_NAME) {
+      config.second.qos = input_qos;
+    } else {
+      config.second.qos = output_qos;
+    }
+  }
+
   // Received invalid color segmentation mask encoding
   if (color_segmentation_mask_encoding_.empty()) {
     RCLCPP_ERROR(
@@ -132,7 +143,6 @@ UNetDecoderNode::UNetDecoderNode(const rclcpp::NodeOptions options)
     throw std::invalid_argument(
             "Received empty color segmentation mask encoding!");
   }
-
 
   auto nitros_format = INPUT_FORMAT_TO_NITROS.find(color_segmentation_mask_encoding_);
   if (nitros_format == std::end(INPUT_FORMAT_TO_NITROS)) {
