@@ -168,8 +168,8 @@ def generate_launch_description():
             'attach_to_shared_component_container': 'True',
             'component_container_name': 'segment_anything_container',
             'dnn_image_encoder_namespace': 'yolov8_encoder',
-            'image_input_topic': '/front_stereo_camera/left_rgb/image_raw',
-            'camera_info_input_topic': '/front_stereo_camera/left_rgb/camerainfo',
+            'image_input_topic': '/front_stereo_camera/left/image_rect_color',
+            'camera_info_input_topic': '/front_stereo_camera/left/camera_info',
             'tensor_output_topic': '/tensor_pub',
         }.items(),
     )
