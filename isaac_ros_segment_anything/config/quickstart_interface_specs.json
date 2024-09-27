@@ -1,0 +1,16 @@
+{
+    "camera_resolution": {
+        "width": 1280,
+        "height": 720
+    },
+    "input_image": {
+        "width": 1280,
+        "height": 720
+    },
+    "camera_model" : "zed2",
+    "subscribed_topics": {
+        "image": "/image_rect",
+        "camera_info": "/camera_info_rect",
+        "prompt": "/detections_output"
+    }
+}
