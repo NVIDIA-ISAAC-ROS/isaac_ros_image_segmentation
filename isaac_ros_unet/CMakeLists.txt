@@ -39,6 +39,13 @@ if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   ament_lint_auto_find_test_dependencies()
 
+  # Gtest for  unet decoder node
+  ament_add_gtest(unet_decoder_node_test test/unet_decoder_node_test.cpp)
+  target_link_libraries(unet_decoder_node_test unet_decoder_node)
+  target_include_directories(unet_decoder_node_test PUBLIC include/isaac_ros_unet/)
+  target_include_directories(unet_decoder_node_test PUBLIC /usr/src/googletest/googlemock/include/)
+  ament_target_dependencies(unet_decoder_node_test rclcpp)
+  ament_target_dependencies(unet_decoder_node_test isaac_ros_nitros)
 
   # The FindPythonInterp and FindPythonLibs modules are removed
   if(POLICY CMP0148)
@@ -48,5 +55,11 @@ if(BUILD_TESTING)
   find_package(launch_testing_ament_cmake REQUIRED)
   add_launch_test(test/isaac_ros_unet_pol_test.py TIMEOUT "600")
 endif()
+
+
+# Embed versioning information into installed files
+ament_index_get_resource(ISAAC_ROS_COMMON_CMAKE_PATH isaac_ros_common_cmake_path isaac_ros_common)
+include("${ISAAC_ROS_COMMON_CMAKE_PATH}/isaac_ros_common-version-info.cmake")
+generate_version_info(${PROJECT_NAME})
 
 ament_auto_package(INSTALL_TO_SHARE config launch)

@@ -16,9 +16,10 @@
 # limitations under the License.
 #
 # SPDX-License-Identifier: Apache-2.0
-
+import cv2
 import cv_bridge
 from isaac_ros_tensor_list_interfaces.msg import TensorList
+from message_filters import Subscriber, TimeSynchronizer
 import numpy as np
 import rclpy
 from rclpy.node import Node
@@ -29,9 +30,13 @@ class SegmentAnythingVisualization(Node):
 
     def __init__(self):
         super().__init__('segment_anything_visualizer')
+
         self._bridge = cv_bridge.CvBridge()
-        self._mask_subscriber = self.create_subscription(
-            TensorList, 'segment_anything/raw_segmentation_mask', self.callback, 10)
+        self._mask_subscriber = Subscriber(
+            self, TensorList, 'segment_anything/raw_segmentation_mask')
+
+        self._image_subscriber = Subscriber(
+            self, Image, '/yolov8_encoder/resize/image')
 
         self._processed_image_pub = self.create_publisher(
             Image, 'segment_anything/colored_segmentation_mask', 10)
@@ -40,8 +45,11 @@ class SegmentAnythingVisualization(Node):
                                'FF8C00', 'FFD700', '00FF00', 'BA55D3', '00FA9A', '00FFFF',
                                '0000FF', 'F08080', 'FF00FF', '1E90FF', 'DDA0DD', 'FF1493',
                                '87CEFA', 'FFDEAD']
+        self.sync = TimeSynchronizer([self._image_subscriber, self._mask_subscriber], 50)
+        self.sync.registerCallback(self.callback)
 
-    def callback(self, masks):
+    def callback(self, img, masks):
+        input_image = self._bridge.imgmsg_to_cv2(img, 'rgb8')
         tensor = masks.tensors[0]
         shape = tensor.shape
 
@@ -55,14 +63,15 @@ class SegmentAnythingVisualization(Node):
         for n in range(dimensions[0]):
             palette_idx = n
 
-            if(n >= len(self._color_palette)):
+            if (n >= len(self._color_palette)):
                 palette_idx = len(self._color_palette) - 1
 
             rgb_val = [int(self._color_palette[palette_idx][i:i+2], 16) for i in (0, 2, 4)]
             rgb_image[:, :, :][np.where(data[n, 0, :, :] > 0)] = np.array(rgb_val)
+        result_image = cv2.addWeighted(input_image, 0.5, rgb_image, 0.5, 0)
 
         processed_img = self._bridge.cv2_to_imgmsg(
-            rgb_image, encoding='rgb8')
+            result_image, encoding='rgb8')
         self._processed_image_pub.publish(processed_img)
 
 

@@ -7,33 +7,33 @@
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
-# Download and tao-convert ESS models.
+# Download and TRT-compile PeopleSemSeg-Vanilla models.
 # * Models will be stored in the isaac_ros_assets dir
 # * The script must be called with the --eula argument prior to downloading.
 
 set -e
 
-ASSET_NAME="deployable_quantized_vanilla_unet_v2.0"
+ASSET_NAME="deployable_quantized_vanilla_unet_onnx_v2.0"
 EULA_URL="https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/peoplesemsegnet"
 ASSET_DIR="${ISAAC_ROS_WS}/isaac_ros_assets/models/peoplesemsegnet/${ASSET_NAME}"
 ASSET_INSTALL_PATHS="${ASSET_DIR}/1/model.plan"
-MODEL_URL="https://api.ngc.nvidia.com/v2/models/nvidia/tao/peoplesemsegnet/versions/deployable_quantized_vanilla_unet_v2.0/files/peoplesemsegnet_vanilla_unet_dynamic_etlt_int8_fp16.etlt"
+MODEL_URL="https://api.ngc.nvidia.com/v2/models/org/nvidia/team/tao/peoplesemsegnet/deployable_quantized_vanilla_unet_onnx_v2.0/files?redirect=true&path=peoplesemsegnet_vanilla_unet_dynamic_etlt_int8_fp16.onnx"
 
 source "isaac_ros_asset_eula.sh"
 
 mkdir -p $(dirname "$ASSET_INSTALL_PATHS")
 
-wget "${MODEL_URL}" -O "${ASSET_DIR}/model.etlt"
+wget "${MODEL_URL}" -O "${ASSET_DIR}/model.onnx"
 
-echo "Converting PeopleSemSegnet etlt file to plan file."
-/opt/nvidia/tao/tao-converter \
-    -k tlt_encode \
-    -d 3,544,960 \
-    -p input_1:0,1x3x544x960,1x3x544x960,1x3x544x960 \
-    -t fp16 \
-    -e "${ASSET_INSTALL_PATHS}" \
-    -o argmax_1 \
-    "${ASSET_DIR}/model.etlt"
+echo "Converting PeopleSemSegnet onnx file to plan file."
+/usr/src/tensorrt/bin/trtexec \
+    --maxShapes="input_1:0":1x3x544x960 \
+    --minShapes="input_1:0":1x3x544x960 \
+    --optShapes="input_1:0":1x3x544x960 \
+    --onnx="${ASSET_DIR}/model.onnx" \
+    --saveEngine="${ASSET_DIR}/1/model.plan" \
+    --fp16 \
+    --skipInference
 
 # Create config.pbtxt
 config_file_text=$(

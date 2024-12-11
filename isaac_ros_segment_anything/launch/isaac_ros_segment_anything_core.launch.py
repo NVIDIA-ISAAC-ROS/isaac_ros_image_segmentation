@@ -50,6 +50,7 @@ class IsaacROSSegmentAnythingLaunchFragment(IsaacROSLaunchFragment):
         has_input_mask = LaunchConfiguration('has_input_mask')
         orig_img_dims = [interface_specs['input_image']['height'],
                          interface_specs['input_image']['width']]
+        input_image_encoding = LaunchConfiguration('input_image_encoding')
 
         return {
 
@@ -62,6 +63,7 @@ class IsaacROSSegmentAnythingLaunchFragment(IsaacROSLaunchFragment):
                     'output_height': SAM_MODEL_INPUT_SIZE,
                     'keep_aspect_ratio': True,
                     'disable_padding': True,
+                    'encoding_desired': input_image_encoding,
                     'input_width': interface_specs['input_image']['width'],
                     'input_height': interface_specs['input_image']['height']
                 }],
@@ -265,6 +267,11 @@ class IsaacROSSegmentAnythingLaunchFragment(IsaacROSLaunchFragment):
                 'color_segmentation_mask_encoding',
                 default_value='rgb8',
                 description='The image encoding of the colored segmentation mask (rgb8 or bgr8)'),
+            'input_image_encoding': DeclareLaunchArgument(
+                'input_image_encoding',
+                default_value='rgb8',
+                description='The image encoding of the input image \
+                (rgb8 or bgr8 or bgra8 or rgba8)'),
             'prompt_input_type': DeclareLaunchArgument(
                 'prompt_input_type',
                 default_value='bbox',

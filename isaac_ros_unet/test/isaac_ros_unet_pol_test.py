@@ -74,10 +74,10 @@ def generate_test_description():
         if e.errno != errno.ENOENT:
             print('File exists but error deleting /tmp/trt_engine.plan')
 
-    encoder_dir = get_package_share_directory('isaac_ros_dnn_image_encoder')
+    encoder_dir = get_package_share_directory('isaac_ros_unet')
     encoder_node_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            [os.path.join(encoder_dir, 'launch', 'dnn_image_encoder.launch.py')]
+            [os.path.join(encoder_dir, 'launch', 'isaac_ros_unet_encoder.launch.py')]
         ),
         launch_arguments={
             'input_image_width': '1200',

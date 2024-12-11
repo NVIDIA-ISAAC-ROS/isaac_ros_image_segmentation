@@ -21,7 +21,7 @@ components:
 - name: image_receiver
   type: nvidia::gxf::DoubleBufferReceiver
   parameters:
-    capacity: 12
+    capacity: 2
 - type: nvidia::gxf::MessageAvailableSchedulingTerm
   parameters:
     receiver: image_receiver
@@ -29,7 +29,7 @@ components:
 - name: prompt_receiver
   type: nvidia::gxf::DoubleBufferReceiver
   parameters:
-    capacity: 12
+    capacity: 2
 - type: nvidia::gxf::MessageAvailableSchedulingTerm
   parameters:
     receiver: prompt_receiver
@@ -37,7 +37,7 @@ components:
 - name: mask_receiver
   type: nvidia::gxf::DoubleBufferReceiver
   parameters:
-    capacity: 12
+    capacity: 1
 - type: nvidia::gxf::MessageAvailableSchedulingTerm
   parameters:
     receiver: mask_receiver
@@ -45,7 +45,7 @@ components:
 - name: image_transmitter
   type: nvidia::gxf::DoubleBufferTransmitter
   parameters:
-    capacity: 12
+    capacity: 1
 - type: nvidia::gxf::DownstreamReceptiveSchedulingTerm
   parameters:
     transmitter: image_transmitter
@@ -53,7 +53,7 @@ components:
 - name: prompt_transmitter
   type: nvidia::gxf::DoubleBufferTransmitter
   parameters:
-    capacity: 12
+    capacity: 1
 - type: nvidia::gxf::DownstreamReceptiveSchedulingTerm
   parameters:
     transmitter: prompt_transmitter
@@ -61,7 +61,7 @@ components:
 - name: mask_transmitter
   type: nvidia::gxf::DoubleBufferTransmitter
   parameters:
-    capacity: 12
+    capacity: 1
 - type: nvidia::gxf::DownstreamReceptiveSchedulingTerm
   parameters:
     transmitter: mask_transmitter
@@ -76,7 +76,7 @@ components:
 - name: input_prompt
   type: nvidia::gxf::DoubleBufferReceiver
   parameters:
-    capacity: 12
+    capacity: 1
 - type: nvidia::gxf::MessageAvailableSchedulingTerm
   parameters:
     receiver: input_prompt
@@ -84,7 +84,7 @@ components:
 - name: output_buffer
   type: nvidia::gxf::DoubleBufferTransmitter
   parameters:
-    capacity: 12
+    capacity: 1
 - type: nvidia::gxf::DownstreamReceptiveSchedulingTerm
   parameters:
     transmitter: output_buffer
@@ -110,7 +110,7 @@ components:
 - name: input_prompt
   type: nvidia::gxf::DoubleBufferReceiver
   parameters:
-    capacity: 12
+    capacity: 1
 - type: nvidia::gxf::MessageAvailableSchedulingTerm
   parameters:
     receiver: input_prompt
@@ -118,7 +118,7 @@ components:
 - name: input_image
   type: nvidia::gxf::DoubleBufferReceiver
   parameters:
-    capacity: 12
+    capacity: 1
 - type: nvidia::gxf::MessageAvailableSchedulingTerm
   parameters:
     receiver: input_image
@@ -126,7 +126,7 @@ components:
 - name: input_mask
   type: nvidia::gxf::DoubleBufferReceiver
   parameters:
-    capacity: 12
+    capacity: 1
 - type: nvidia::gxf::MessageAvailableSchedulingTerm
   parameters:
     receiver: input_mask
@@ -134,7 +134,7 @@ components:
 - name: output_buffer
   type: nvidia::gxf::DoubleBufferTransmitter
   parameters:
-    capacity: 12
+    capacity: 1
 - type: nvidia::gxf::DownstreamReceptiveSchedulingTerm
   parameters:
     transmitter: output_buffer
