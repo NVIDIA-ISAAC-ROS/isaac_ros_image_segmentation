@@ -49,6 +49,9 @@ class IsaacROSUNetLaunchFragment(IsaacROSLaunchFragment):
         mask_width = LaunchConfiguration('mask_width')
         mask_height = LaunchConfiguration('mask_height')
 
+        # Alpha Blend parameters
+        alpha = LaunchConfiguration('alpha')
+
         return {
             'unet_inference_node': ComposableNode(
                 name='unet_inference',
@@ -81,6 +84,22 @@ class IsaacROSUNetLaunchFragment(IsaacROSLaunchFragment):
                                       0x00FA9A, 0x00FFFF, 0x0000FF, 0xF08080, 0xFF00FF,
                                       0x1E90FF, 0xDDA0DD, 0xFF1493, 0x87CEFA, 0xFFDEAD],
                 }],
+            ),
+            'alpha_blend_node': ComposableNode(
+                name='alpha_blend',
+                package='isaac_ros_image_proc',
+                plugin='nvidia::isaac_ros::image_proc::AlphaBlendNode',
+                parameters=[{
+                    'alpha': alpha,
+                    'mask_queue_size': 50,
+                    'image_queue_size': 50,
+                    'sync_queue_size': 50,
+                }],
+                remappings=[
+                    ('mask_input', '/unet/colored_segmentation_mask'),
+                    ('image_input', '/unet_encoder/converted/image'),
+                    ('blended_image', '/segmentation_image_overlay')
+                ],
             )
         }
 
@@ -89,14 +108,19 @@ class IsaacROSUNetLaunchFragment(IsaacROSLaunchFragment):
             Dict[str, launch.actions.OpaqueFunction]:
 
         # DNN Image Encoder parameters
+        input_qos = LaunchConfiguration('input_qos')
         network_image_width = LaunchConfiguration('network_image_width')
         network_image_height = LaunchConfiguration('network_image_height')
         encoder_image_mean = LaunchConfiguration('encoder_image_mean')
         encoder_image_stddev = LaunchConfiguration('encoder_image_stddev')
+        use_planar_input = LaunchConfiguration('use_planar_input')
 
-        encoder_dir = get_package_share_directory('isaac_ros_dnn_image_encoder')
-
+        encoder_dir = get_package_share_directory('isaac_ros_unet')
         return {
+            'input_qos': DeclareLaunchArgument(
+                'input_qos',
+                default_value='DEFAULT',
+                description='The QoS profile of the resize node subscriber'),
             'network_image_width': DeclareLaunchArgument(
                 'network_image_width',
                 default_value='960',
@@ -113,6 +137,10 @@ class IsaacROSUNetLaunchFragment(IsaacROSLaunchFragment):
                 'encoder_image_stddev',
                 default_value='[0.5, 0.5, 0.5]',
                 description='The standard deviation for image normalization'),
+            'use_planar_input': DeclareLaunchArgument(
+                'use_planar_input',
+                default_value='True',
+                description='Whether the input image should be in planar format or not'),
             'model_file_path': DeclareLaunchArgument(
                 'model_file_path',
                 default_value='',
@@ -176,11 +204,17 @@ class IsaacROSUNetLaunchFragment(IsaacROSLaunchFragment):
                 'mask_height',
                 default_value='544',
                 description='The height of the segmentation mask'),
+            'alpha': DeclareLaunchArgument(
+                'alpha',
+                default_value='0.5',
+                description='The alpha value for alpha blending.',
+            ),
             'dope_encoder_launch': IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
-                    [os.path.join(encoder_dir, 'launch', 'dnn_image_encoder.launch.py')]
+                    [os.path.join(encoder_dir, 'launch', 'isaac_ros_unet_encoder.launch.py')]
                 ),
                 launch_arguments={
+                    'input_qos': input_qos,
                     'input_image_width': str(interface_specs['camera_resolution']['width']),
                     'input_image_height': str(interface_specs['camera_resolution']['height']),
                     'network_image_width': network_image_width,
@@ -188,6 +222,7 @@ class IsaacROSUNetLaunchFragment(IsaacROSLaunchFragment):
                     'image_mean': encoder_image_mean,
                     'image_stddev': encoder_image_stddev,
                     'enable_padding': 'True',
+                    'use_planar_input': use_planar_input,
                     'attach_to_shared_component_container': 'True',
                     'component_container_name': '/isaac_ros_examples/container',
                     'dnn_image_encoder_namespace': 'unet_encoder',

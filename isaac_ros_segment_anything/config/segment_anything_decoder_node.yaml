@@ -21,7 +21,7 @@ components:
 - name: input_tensor
   type: nvidia::gxf::DoubleBufferReceiver
   parameters:
-    capacity: 12
+    capacity: 1
 - type: nvidia::gxf::MessageAvailableSchedulingTerm
   parameters:
     receiver: input_tensor
@@ -29,7 +29,7 @@ components:
 - name: output_buffer
   type: nvidia::gxf::DoubleBufferTransmitter
   parameters:
-    capacity: 12
+    capacity: 1
 - type: nvidia::gxf::DownstreamReceptiveSchedulingTerm
   parameters:
     transmitter: output_buffer
@@ -64,7 +64,7 @@ components:
 - name: input_raw_segmentation_mask
   type: nvidia::gxf::DoubleBufferReceiver
   parameters:
-    capacity: 2
+    capacity: 1
 - type: nvidia::gxf::MessageAvailableSchedulingTerm
   parameters:
     receiver: input_raw_segmentation_mask

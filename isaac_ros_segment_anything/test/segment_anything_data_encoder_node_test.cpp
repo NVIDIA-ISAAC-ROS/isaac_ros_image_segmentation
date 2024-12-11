@@ -22,15 +22,12 @@
 // Objective: to cover code lines where exceptions are thrown
 // Approach: send Invalid Arguments for node parameters to trigger the exception
 
+
 TEST(segment_anything_data_encoder_node_test, test_invalid_input_prompt_type)
 {
   rclcpp::init(0, nullptr);
   rclcpp::NodeOptions options;
-  options.arguments(
-  {
-    "--ros-args",
-    "-p", "prompt_input_type:=''",
-  });
+  options.append_parameter_override("prompt_input_type", "");
   EXPECT_THROW(
   {
     try {
@@ -38,6 +35,9 @@ TEST(segment_anything_data_encoder_node_test, test_invalid_input_prompt_type)
       segment_anything_data_encoder_node(options);
     } catch (const std::invalid_argument & e) {
       EXPECT_THAT(e.what(), testing::HasSubstr("Received invalid input prompt type"));
+      throw;
+    } catch (const rclcpp::exceptions::InvalidParameterValueException & e) {
+      EXPECT_THAT(e.what(), testing::HasSubstr("No parameter value set"));
       throw;
     }
   }, std::invalid_argument);

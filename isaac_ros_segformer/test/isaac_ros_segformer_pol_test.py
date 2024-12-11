@@ -32,20 +32,18 @@ import pathlib
 import time
 
 from ament_index_python.packages import get_package_share_directory
-from isaac_ros_test import IsaacROSBaseTest, JSONConversion
+from isaac_ros_test import IsaacROSBaseTest, JSONConversion, MockModelGenerator
 import launch
 from launch.actions import IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions.composable_node_container import ComposableNodeContainer
 from launch_ros.descriptions.composable_node import ComposableNode
 import launch_testing
-
 import numpy as np
-
 import pytest
 import rclpy
-
 from sensor_msgs.msg import CameraInfo, Image
+import torch
 
 _TEST_CASE_NAMESPACE = 'segformer_node_test'
 
@@ -73,6 +71,17 @@ def generate_test_description():
     except OSError as e:
         if e.errno != errno.ENOENT:
             print('File exists but error deleting /tmp/trt_engine.plan')
+
+    # Generate a mock model with SegFormer-like I/O
+    MockModelGenerator.generate(
+        input_bindings=[
+            MockModelGenerator.Binding('input', [-1, 3, 512, 512], torch.float32)
+        ],
+        output_bindings=[
+            MockModelGenerator.Binding('output', [-1, 1, 512, 512], torch.int64),
+        ],
+        output_onnx_path=model_file_path
+    )
 
     encoder_dir = get_package_share_directory('isaac_ros_dnn_image_encoder')
     encoder_node_launch = IncludeLaunchDescription(

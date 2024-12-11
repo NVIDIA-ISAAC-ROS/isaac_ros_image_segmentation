@@ -46,6 +46,10 @@ def generate_launch_description():
             default_value='[0.5, 0.5, 0.5]',
             description='The standard deviation for image normalization'),
         DeclareLaunchArgument(
+            'use_planar_input',
+            default_value='True',
+            description='Whether the input image should be in planar format or not'),
+        DeclareLaunchArgument(
             'model_name',
             default_value='',
             description='The name of the model'),
@@ -104,6 +108,7 @@ def generate_launch_description():
     network_image_height = LaunchConfiguration('network_image_height')
     encoder_image_mean = LaunchConfiguration('encoder_image_mean')
     encoder_image_stddev = LaunchConfiguration('encoder_image_stddev')
+    use_planar_input = LaunchConfiguration('use_planar_input')
 
     # Triton parameters
     model_name = LaunchConfiguration('model_name')
@@ -143,10 +148,10 @@ def generate_launch_description():
     )
 
     # Parameters preconfigured for PeopleSemSegNet.
-    encoder_dir = get_package_share_directory('isaac_ros_dnn_image_encoder')
+    encoder_dir = get_package_share_directory('isaac_ros_unet')
     encoder_node_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            [os.path.join(encoder_dir, 'launch', 'dnn_image_encoder.launch.py')]
+            [os.path.join(encoder_dir, 'launch', 'isaac_ros_unet_encoder.launch.py')]
         ),
         launch_arguments={
             'input_image_width': str(1920),
@@ -156,6 +161,7 @@ def generate_launch_description():
             'image_mean': encoder_image_mean,
             'image_stddev': encoder_image_stddev,
             'enable_padding': 'True',
+            'use_planar_input': use_planar_input,
             'image_input_topic': '/image_rect',
             'camera_info_input_topic': '/camera_info_rect',
             'tensor_output_topic': '/tensor_pub',
