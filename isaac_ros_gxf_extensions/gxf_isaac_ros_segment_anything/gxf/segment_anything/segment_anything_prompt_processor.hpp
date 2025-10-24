@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-// Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -27,6 +27,9 @@
 #include "detection2_d_array_message.hpp"
 #include "isaac_ros_nitros_detection2_d_array_type/nitros_detection2_d_array.hpp"
 
+#include "gxf/cuda/cuda_stream.hpp"
+#include "gxf/cuda/cuda_stream_pool.hpp"
+
 namespace nvidia {
 namespace isaac_ros {
 
@@ -47,7 +50,6 @@ class SegmentAnythingPromptProcessor : public gxf::Codelet {
     std::vector<float>& label_vec
     );
  private:
-
   gxf::Parameter<gxf::Handle<gxf::Receiver>> in_;
   gxf::Parameter<gxf::Handle<gxf::Transmitter>> out_points_;
   gxf::Parameter<gxf::Handle<gxf::Allocator>> allocator_;
@@ -55,7 +57,11 @@ class SegmentAnythingPromptProcessor : public gxf::Codelet {
   gxf::Parameter<int32_t> max_batch_size_;
   gxf::Parameter<std::string> prompt_type_name_;
   gxf::Parameter<bool> has_input_mask_;
-  
+  gxf::Parameter<gxf::Handle<gxf::CudaStreamPool>> cuda_stream_pool_;
+  // CUDA stream variables
+  gxf::Handle<gxf::CudaStream> cuda_stream_handle_;
+  cudaStream_t cuda_stream_ = 0;
+
   const uint16_t IMAGE_WIDTH_ = 1024;
   const uint16_t IMAGE_HEIGHT_ = 1024;
   uint16_t resized_width_;

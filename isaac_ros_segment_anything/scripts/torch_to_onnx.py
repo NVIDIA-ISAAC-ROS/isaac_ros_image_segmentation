@@ -155,6 +155,7 @@ def run_export(
                 input_names=list(dummy_inputs.keys()),
                 output_names=output_names,
                 dynamic_axes=dynamic_axes,
+                dynamo=False  # Use legacy exporter for dynamic shapes
             )
 
     if onnxruntime_exists:

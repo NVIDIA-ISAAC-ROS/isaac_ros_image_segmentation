@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-// Copyright (c) 2022-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -27,6 +27,8 @@
 #include "gxf/std/receiver.hpp"
 #include "gxf/std/transmitter.hpp"
 #include "segmentation_mask_colorizer.cu.hpp"
+#include "gxf/cuda/cuda_stream.hpp"
+#include "gxf/cuda/cuda_stream_pool.hpp"
 
 namespace nvidia {
 namespace isaac_ros {
@@ -45,6 +47,10 @@ class SegmentationMaskColorizer : public gxf::Codelet {
   gxf::Parameter<gxf::Handle<gxf::Allocator>> allocator_;
   gxf::Parameter<std::vector<int64_t>> color_palette_vec_;
   gxf::Parameter<std::string> color_segmentation_mask_encoding_str_;
+  gxf::Parameter<gxf::Handle<gxf::CudaStreamPool>> cuda_stream_pool_;
+  // CUDA stream variables
+  gxf::Handle<gxf::CudaStream> cuda_stream_handle_;
+  cudaStream_t cuda_stream_ = 0;
 
   ArrayView<int64_t> color_palette_;
   ColorImageEncodings color_segmentation_mask_encoding_;

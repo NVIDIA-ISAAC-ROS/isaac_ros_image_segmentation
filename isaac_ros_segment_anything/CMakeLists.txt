@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,6 +26,7 @@ find_package(ament_cmake_auto REQUIRED)
 ament_auto_find_build_dependencies()
 enable_language(CUDA)
 # Decoder node
+
 ament_auto_add_library(segment_anything_decoder_node SHARED src/segment_anything_decoder_node.cpp)
 rclcpp_components_register_nodes(segment_anything_decoder_node "nvidia::isaac_ros::segment_anything::SegmentAnythingDecoderNode")
 set(node_plugins
@@ -53,7 +54,37 @@ set_target_properties(segment_anything_dummy_mask_publisher_node PROPERTIES
   BUILD_RPATH_USE_ORIGIN TRUE
   INSTALL_RPATH_USE_LINK_PATH TRUE)
 
+ament_auto_add_library(segment_anything_point_triggered_node SHARED src/segment_anything_point_triggered_node.cpp)
+rclcpp_components_register_nodes(
+  segment_anything_point_triggered_node "nvidia::isaac_ros::segment_anything::SegmentAnythingPointTriggeredNode")
+set(node_plugins
+"${node_plugins}nvidia::isaac_ros::segment_anything::SegmentAnythingPointTriggeredNode;$<TARGET_FILE:segment_anything_point_triggered_node>\n")
+set_target_properties(segment_anything_point_triggered_node PROPERTIES
+  BUILD_WITH_INSTALL_RPATH TRUE
+  BUILD_RPATH_USE_ORIGIN TRUE
+  INSTALL_RPATH_USE_LINK_PATH TRUE)
+
+# Segment Anything Tensor to Image
+ament_auto_add_library(segment_anything_tensor_to_image_node SHARED
+  src/segment_anything_tensor_to_image_node.cpp
+  src/segment_anything_binarize_tensor.cu)
+  rclcpp_components_register_nodes(segment_anything_tensor_to_image_node
+    "nvidia::isaac_ros::segment_anything::TensorToImageNode")
+  set(node_plugins
+    "${node_plugins}nvidia::isaac_ros::segment_anything::TensorToImageNode;$<TARGET_FILE:segment_anything_tensor_to_image_node>\n")
+  set_target_properties(segment_anything_tensor_to_image_node PROPERTIES
+    BUILD_WITH_INSTALL_RPATH TRUE
+    BUILD_RPATH_USE_ORIGIN TRUE
+    INSTALL_RPATH_USE_LINK_PATH TRUE)
+  # Mark as CUDA files with non-standard extensions
+  set_source_files_properties(
+    src/segment_anything_binarize_tensor.cu
+    include/isaac_ros_segment_anything/segment_anything_binarize_tensor.hpp
+    PROPERTIES LANGUAGE CUDA
+  )
+
 ament_python_install_package(${PROJECT_NAME})
+install(PROGRAMS scripts/colored_mask_converter_node.py DESTINATION lib/${PROJECT_NAME})
 install(PROGRAMS scripts/torch_to_onnx.py DESTINATION lib/${PROJECT_NAME})
 install(PROGRAMS scripts/visualize_mask.py DESTINATION lib/${PROJECT_NAME})
 
@@ -68,8 +99,8 @@ if(BUILD_TESTING)
   set(CMAKE_IGNORE_PATH "/usr/include/gmock" ${CMAKE_IGNORE_PATH})
 
   # Explicitly use ROS2 vendor googletest/gmock
-  include_directories(BEFORE /opt/ros/humble/src/gtest_vendor/include)
-  include_directories(BEFORE /opt/ros/humble/src/gmock_vendor/include)
+  include_directories(BEFORE /opt/ros/$ENV{ROS_DISTRO}/src/gtest_vendor/include)
+  include_directories(BEFORE /opt/ros/$ENV{ROS_DISTRO}/src/gmock_vendor/include)
 
   # Gtests for segment anything data encoder node
   ament_add_gtest(segment_anything_data_encoder_node_test test/segment_anything_data_encoder_node_test.cpp)
@@ -86,6 +117,7 @@ if(BUILD_TESTING)
   find_package(launch_testing_ament_cmake REQUIRED)
   add_launch_test(test/isaac_ros_segment_anything_onnx_pol.py TIMEOUT "300")
   add_launch_test(test/isaac_ros_segment_anything_point_prompt_pol.py TIMEOUT "300")
+  add_launch_test(test/isaac_ros_segment_anything_tensor_to_image_test.py)
 endif()
 
 

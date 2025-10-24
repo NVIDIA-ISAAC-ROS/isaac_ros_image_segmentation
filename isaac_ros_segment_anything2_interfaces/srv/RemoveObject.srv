@@ -1,0 +1,19 @@
+# This service is used to remove object from the SAM2 tracking.
+
+
+# request
+std_msgs/Header request_header
+
+# object id to remove
+string object_id
+
+
+---
+
+# response
+string[] object_ids # All the remaining object ids in the system
+int32[] object_indices # their corresponding indices in the segmentation mask tensor
+
+bool success # True if object was removed successfully, false otherwise
+string message # Optional status or error message
+

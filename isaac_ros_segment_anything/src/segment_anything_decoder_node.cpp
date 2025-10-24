@@ -95,7 +95,8 @@ SegmentAnythingDecoderNode::SegmentAnythingDecoderNode(const rclcpp::NodeOptions
     PACKAGE_NAME),
   mask_width_(declare_parameter<int16_t>("mask_width", 960)),
   mask_height_(declare_parameter<int16_t>("mask_height", 544)),
-  max_batch_size_(declare_parameter<int16_t>("max_batch_size", 20))
+  max_batch_size_(declare_parameter<int16_t>("max_batch_size", 20)),
+  tensor_name_(declare_parameter<std::string>("tensor_name", ""))
 {
   registerSupportedType<nvidia::isaac_ros::nitros::NitrosImage>();
   registerSupportedType<nvidia::isaac_ros::nitros::NitrosTensorList>();
@@ -109,6 +110,11 @@ void SegmentAnythingDecoderNode::postLoadGraphCallback()
   getNitrosContext().setParameterUInt64(
     "segmentation_postprocessor",
     "nvidia::gxf::BlockMemoryPool", "block_size", block_size
+  );
+  getNitrosContext().setParameterStr(
+    "segmentation_postprocessor",
+    "nvidia::isaac_ros::SegmentAnythingPostprocessor",
+    "tensor_name", tensor_name_
   );
 }
 

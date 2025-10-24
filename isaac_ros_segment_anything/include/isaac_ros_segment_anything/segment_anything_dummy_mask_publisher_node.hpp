@@ -21,6 +21,8 @@
 #include <memory>
 #include <string>
 
+#include "cuda_runtime.h"  // NOLINT - include .h without directory
+
 #include "rclcpp/rclcpp.hpp"
 
 #include "isaac_ros_managed_nitros/managed_nitros_subscriber.hpp"
@@ -55,6 +57,9 @@ private:
 
   // Name of tensor in NitrosTensorList
   std::string tensor_name_{};
+
+  // CUDA stream for async operations
+  cudaStream_t stream_;
 };
 
 }  // namespace segment_anything

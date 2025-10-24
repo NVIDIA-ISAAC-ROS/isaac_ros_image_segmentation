@@ -1,6 +1,6 @@
 %YAML 1.2
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -95,11 +95,21 @@ components:
     storage_type: 1
     block_size: 2048
     num_blocks: 200
+- name: stream_pool
+  type: nvidia::gxf::CudaStreamPool
+  parameters:
+    dev_id: 0
+    stream_flags: 1
+    stream_priority: 0
+    reserved_size: 1
+    max_size: 1
+    nvtx_identifier: "segment_anything_prompt_processor_stream_pool"
 - type: nvidia::isaac_ros::SegmentAnythingPromptProcessor
   parameters:
     in: input_prompt
     out_points: output_buffer
     allocator: allocator
+    stream_pool: stream_pool
 - type: nvidia::gxf::MemoryAvailableSchedulingTerm
   parameters:
     allocator: allocator
@@ -199,6 +209,7 @@ components:
     stop_on_deadlock: false
     check_recession_period_ms: 1
     worker_thread_number: 2
+    worker_thread_name_id: "segment_anything_data_encoder_node"
 - type: nvidia::gxf::JobStatistics
   parameters:
     clock: clock

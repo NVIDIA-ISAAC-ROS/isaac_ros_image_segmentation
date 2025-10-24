@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-// Copyright (c) 2022-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -114,11 +114,26 @@ gxf_result_t SegmentationMaskColorizer::registerInterface(gxf::Registrar * regis
     color_segmentation_mask_encoding_str_, "color_segmentation_mask_encoding",
     "Color Segmentation Mask Encoding",
     "The encoding of the colored segmentation mask. This should be either rgb8 or bgr8");
+  result &= registrar->parameter(cuda_stream_pool_, "stream_pool", "Cuda Stream Pool",
+                                 "Instance of gxf::CudaStreamPool to allocate CUDA stream.");
   return gxf::ToResultCode(result);
 }
 
 gxf_result_t SegmentationMaskColorizer::start()
 {
+  // Get cuda stream from stream pool
+  auto maybe_stream = cuda_stream_pool_.get()->allocateStream();
+  if (!maybe_stream) { return gxf::ToResultCode(maybe_stream); }
+
+  cuda_stream_handle_ = std::move(maybe_stream.value());
+  if (!cuda_stream_handle_->stream()) {
+    GXF_LOG_ERROR("Allocated stream is not initialized!");
+    return GXF_FAILURE;
+  }
+  if (!cuda_stream_handle_.is_null()) {
+    cuda_stream_ = cuda_stream_handle_->stream().value();
+  }
+
   if (color_palette_vec_.get().empty()) {
     GXF_LOG_ERROR("Error: received empty color palette!");
     return GXF_FAILURE;
@@ -126,14 +141,18 @@ gxf_result_t SegmentationMaskColorizer::start()
 
   int64_t * data{nullptr};
   cudaError_t result =
-    cudaMalloc(&data, sizeof(int64_t) * color_palette_vec_.get().size());
+    cudaMallocAsync(&data, sizeof(int64_t) * color_palette_vec_.get().size(), cuda_stream_);
   if (result != cudaSuccess) {return GXF_FAILURE;}
   color_palette_.data.reset(data);
-
-  result = cudaMemcpy(
+  result = cudaMemcpyAsync(
     color_palette_.data.get(), color_palette_vec_.get().data(),
-    color_palette_vec_.get().size() * sizeof(int64_t), cudaMemcpyHostToDevice);
+    color_palette_vec_.get().size() * sizeof(int64_t), cudaMemcpyHostToDevice, cuda_stream_);
   if (result != cudaSuccess) {return GXF_FAILURE;}
+
+  if (cudaStreamSynchronize(cuda_stream_) != cudaSuccess) {
+    GXF_LOG_ERROR("Failed to synchronize stream");
+    return GXF_FAILURE;
+  }
 
   if (color_segmentation_mask_encoding_str_.get() == std::string{"rgb8"}) {
     color_segmentation_mask_encoding_ = ColorImageEncodings::kRGB8;
