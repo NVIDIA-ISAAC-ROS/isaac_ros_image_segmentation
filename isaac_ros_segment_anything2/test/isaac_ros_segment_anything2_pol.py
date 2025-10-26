@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,14 +19,16 @@ import os
 import pathlib
 import time
 
+from isaac_ros_segment_anything2_interfaces.srv import AddObjects
 from isaac_ros_tensor_list_interfaces.msg import TensorList
 from isaac_ros_test import IsaacROSBaseTest
 import launch
 from launch_ros.actions import ComposableNodeContainer
 from launch_ros.descriptions import ComposableNode
-
 import pytest
 import rclpy
+from std_msgs.msg import Header
+from vision_msgs.msg import BoundingBox2D
 
 
 @pytest.mark.rostest
@@ -36,7 +38,9 @@ def generate_test_description():
     dir_path = os.path.dirname(os.path.realpath(__file__))
     model_dir = dir_path + '/model'
 
-    namespace = IsaacROSSegmentAnythingTest.generate_namespace()
+    os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+    namespace = IsaacROSSegmentAnything2Test.generate_namespace()
 
     resize_node = ComposableNode(
         name='sam_resize_node',
@@ -146,21 +150,18 @@ def generate_test_description():
         ],
     )
 
-    dummy_mask_pub_node = ComposableNode(
-        name='dummy_mask_pub',
-        package='isaac_ros_segment_anything',
-        plugin='nvidia::isaac_ros::segment_anything::DummyMaskPublisher',
-        namespace=namespace
-    )
-
     data_preprocessor_node = ComposableNode(
-        name='sam_data_encoder_node',
-        package='isaac_ros_segment_anything',
-        plugin='nvidia::isaac_ros::segment_anything::SegmentAnythingDataEncoderNode',
+        name='sam2_data_encoder_node',
+        package='isaac_ros_segment_anything2',
+        plugin='nvidia::isaac_ros::segment_anything2::SegmentAnything2DataEncoderNode',
         namespace=namespace,
         parameters=[{
-            'prompt_input_type': 'bbox'
-        }]
+            'max_num_objects': 1,
+            'orig_img_dims': [632, 1200]
+        }],
+        remappings=[('encoded_data', 'encoded_data'),
+                    ('image', 'tensor_pub'),
+                    ('memory', 'tensor_sub')]
     )
 
     triton_node = ComposableNode(
@@ -169,19 +170,23 @@ def generate_test_description():
         plugin='nvidia::isaac_ros::dnn_inference::TritonNode',
         namespace=namespace,
         parameters=[{
-            'model_name': 'segment_anything',
+            'model_name': 'segment_anything2',
             'model_repository_paths': [model_dir],
             'max_batch_size': 1,
-            'input_tensor_names': ['input_tensor', 'points', 'labels', 'input_mask',
-                                   'has_input_mask', 'orig_img_dims'],
-            'input_binding_names': ['images', 'point_coords', 'point_labels', 'mask_input',
-                                    'has_mask_input', 'orig_im_size'],
+            'input_tensor_names': ['image', 'bbox_coords', 'point_coords', 'point_labels',
+                                   'mask_memory', 'obj_ptr_memory', 'original_size',
+                                   'permutation'],
+            'input_binding_names': ['image', 'bbox_coords', 'point_coords', 'point_labels',
+                                    'mask_memory', 'obj_ptr_memory', 'original_size',
+                                    'permutation'],
             'input_tensor_formats': ['nitros_tensor_list_nchw_rgb_f32'],
-            'output_tensor_names': ['masks', 'iou', 'low_res_mask'],
-            'output_binding_names': ['masks', 'iou_predictions', 'low_res_masks'],
+            'output_tensor_names': ['high_res_masks', 'object_score_logits',
+                                    'maskmem_features', 'maskmem_pos_enc', 'obj_ptr_features'],
+            'output_binding_names': ['high_res_masks', 'object_score_logits',
+                                     'maskmem_features', 'maskmem_pos_enc', 'obj_ptr_features'],
             'output_tensor_formats': ['nitros_tensor_list_nchw_rgb_f32'],
         }],
-        remappings=[('tensor_pub', 'tensor')])
+        remappings=[('tensor_pub', 'encoded_data')])
 
     sam_decoder_node = ComposableNode(
         name='semgnet_anything_decoder_node',
@@ -191,40 +196,42 @@ def generate_test_description():
         parameters=[{
             'mask_width': 1200,
             'mask_height': 632,
-        }])
+            'tensor_name': 'high_res_masks'
+        }],
+        remappings=[('tensor_sub', 'tensor_sub'),
+                    ('segment_anything/raw_segmentation_mask',
+                     'segment_anything2/raw_segmentation_mask')])
 
     rosbag_play = launch.actions.ExecuteProcess(
         cmd=['ros2', 'bag', 'play', '-l', os.path.dirname(__file__) +
              '/../../resources/rosbags/segment_anything_sample_data',
              '--remap',
-             '/detectnet/detections:=' +
-             IsaacROSSegmentAnythingTest.generate_namespace() + '/prompts',
              '/image:=' +
-             IsaacROSSegmentAnythingTest.generate_namespace() + '/image',
+             IsaacROSSegmentAnything2Test.generate_namespace() + '/image',
              '/camera_info:=' +
-             IsaacROSSegmentAnythingTest.generate_namespace() + '/camera_info'],
+             IsaacROSSegmentAnything2Test.generate_namespace() + '/camera_info'],
         output='screen'
     )
 
     nodes = [resize_node, pad_node, image_to_tensor_node, normalize_node,
-             interleaved_to_planar_node, reshaper_node, dummy_mask_pub_node,
+             interleaved_to_planar_node, reshaper_node,
              image_format_converter_node, data_preprocessor_node, triton_node, sam_decoder_node]
 
-    return IsaacROSSegmentAnythingTest.generate_test_description([
+    return IsaacROSSegmentAnything2Test.generate_test_description([
         ComposableNodeContainer(
-            name='sam_container',
+            name='sam2_container',
             package='rclcpp_components',
             executable='component_container_mt',
             composable_node_descriptions=nodes,
-            namespace='segment_anything',
+            namespace='segment_anything2',
             output='screen',
-            arguments=['--ros-args', '--log-level', 'info'],
+            arguments=['--ros-args', '--log-level', 'warn'],
         ),
         rosbag_play
     ])
 
 
-class IsaacROSSegmentAnythingTest(IsaacROSBaseTest):
+class IsaacROSSegmentAnything2Test(IsaacROSBaseTest):
     """
     Proof-of-Life Test for Isaac ROS Segment Anything pipeline.
 
@@ -233,13 +240,13 @@ class IsaacROSSegmentAnythingTest(IsaacROSBaseTest):
     """
 
     # Using default ROS-GXF Bridge output tensor channel configured in 'run_triton_inference' exe
-    SUBSCRIBER_CHANNEL = 'segment_anything/raw_segmentation_mask'
+    SUBSCRIBER_CHANNEL = 'segment_anything2/raw_segmentation_mask'
     # The amount of seconds to allow Triton node to run before verifying received tensors
     # Will depend on time taken for Triton engine generation
     TEST_DURATION = 200.0
 
     DATA_TYPE = 2
-    DIMENSIONS = [10, 1, 632, 1200]
+    DIMENSIONS = [1, 1, 632, 1200]
     RANK = 4
     STRIDES = [1 * 632 * 1200 * 1, 632 * 1200 * 1, 1200 * 1, 1]
     DATA_LENGTH = STRIDES[0] * DIMENSIONS[0]
@@ -264,14 +271,31 @@ class IsaacROSSegmentAnythingTest(IsaacROSBaseTest):
             accept_multiple_messages=True,
             add_received_message_timestamps=True
         )
-
+        self.cli = self.node.create_client(
+            AddObjects, self.generate_namespace('add_objects'))
+        self.req = AddObjects.Request()
+        self.req.request_header = Header()
+        self.req.request_header.stamp.sec = 0
+        self.req.request_header.stamp.nanosec = 0
+        # Set bbox data
+        self.req.bbox_object_ids = ['id']
+        bbox = BoundingBox2D()
+        bbox.center.position.x = 200.0
+        bbox.center.position.y = 200.0
+        bbox.size_x = 20.0
+        bbox.size_y = 20.0
+        self.req.bbox_coords = [bbox]
+        # Check if the a service is available
+        while not self.cli.wait_for_service(timeout_sec=1.0):
+            self.node.get_logger().info('service not available, waiting again...')
         try:
             end_time = time.time() + self.TEST_DURATION
             while time.time() < end_time:
+                self.future = self.cli.call_async(self.req)
                 time.sleep(1)
-                rclpy.spin_once(self.node, timeout_sec=0.1)
                 if len(received_messages[subscriber_topic_namespace]) > 0:
                     break
+                rclpy.spin_once(self.node, timeout_sec=0.1)
 
             # Verify received tensors and log total number of tensors received
             num_tensors_received = len(received_messages[subscriber_topic_namespace])

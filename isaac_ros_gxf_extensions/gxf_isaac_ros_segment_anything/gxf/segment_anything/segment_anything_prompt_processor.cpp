@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-// Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -66,10 +66,25 @@ gxf_result_t SegmentAnythingPromptProcessor::registerInterface(gxf::Registrar* r
   result &= registrar->parameter(max_batch_size_, "max_batch_size");
   result &= registrar->parameter(prompt_type_name_, "prompt_type_name");
   result &= registrar->parameter(has_input_mask_, "has_input_mask");
+  result &= registrar->parameter(cuda_stream_pool_, "stream_pool", "Cuda Stream Pool",
+                                 "Instance of gxf::CudaStreamPool to allocate CUDA stream.");
   return gxf::ToResultCode(result);
 }
 
 gxf_result_t SegmentAnythingPromptProcessor::start() {
+
+  // Get cuda stream from stream pool
+  auto maybe_stream = cuda_stream_pool_.get()->allocateStream();
+  if (!maybe_stream) { return gxf::ToResultCode(maybe_stream); }
+
+  cuda_stream_handle_ = std::move(maybe_stream.value());
+  if (!cuda_stream_handle_->stream()) {
+    GXF_LOG_ERROR("Allocated stream is not initialized!");
+    return GXF_FAILURE;
+  }
+  if (!cuda_stream_handle_.is_null()) {
+    cuda_stream_ = cuda_stream_handle_->stream().value();
+  }
 
   uint32_t orig_width = orig_img_dim_.get()[1];
   uint32_t orig_height = orig_img_dim_.get()[0];
@@ -77,7 +92,7 @@ gxf_result_t SegmentAnythingPromptProcessor::start() {
   if (orig_width > orig_height) {
     resized_width_ = IMAGE_WIDTH_;
     resized_height_ = int((float(resized_width_) / orig_width) * orig_height);
-  } else { 
+  } else {
     resized_height_ = IMAGE_HEIGHT_;
     resized_width_ = int((float(resized_height_) / orig_height) * orig_width);
   }
@@ -96,21 +111,21 @@ gxf_result_t SegmentAnythingPromptProcessor::tick() {
   Detection2DParts parts;
   auto detection2_d_parts_expected = nvidia::isaac_ros::GetDetection2DList(
     in_message.value());
-  
+
   if (!detection2_d_parts_expected) { return gxf::ToResultCode(detection2_d_parts_expected); }
-  
+
   auto detection2_d_parts = detection2_d_parts_expected.value();
 
   // Extract detection2_d array to a struct type defined in detection2_d.hpp
   std::vector<nvidia::isaac_ros::Detection2D> detections =
     *(detection2_d_parts.detection2_d_array);
-  
+
   auto maybe_added_timestamp = AddInputTimestampToOutput(out_message.value(), in_message.value());
   if (!maybe_added_timestamp) {
     GXF_LOG_ERROR("Failed to add timestamp to output msg");
     return gxf::ToResultCode(maybe_added_timestamp);
   }
-  
+
   // Add invalid_frame tensor and publish it.
   // invalid_frame tensor is used by msg compositor to disqualify this input.
   if(detections.size() == 0){
@@ -126,7 +141,7 @@ gxf_result_t SegmentAnythingPromptProcessor::tick() {
 
   uint32_t batch_size = 1;
   uint32_t num_points = num_points_;
-  if (prompt_type_value_ == PromptType::kBbox) { 
+  if (prompt_type_value_ == PromptType::kBbox) {
     batch_size = max_batch_size_ < detections.size() ? max_batch_size_ : detections.size();
   }
 
@@ -139,7 +154,7 @@ gxf_result_t SegmentAnythingPromptProcessor::tick() {
   std::vector<float> label_vec;
 
   detectionToSAMPrompt(detections, prompt_vec, label_vec);
-  
+
   if (!out_message) {
     GXF_LOG_ERROR("Failed to allocate message");
     return gxf::ToResultCode(out_message);
@@ -175,13 +190,15 @@ gxf_result_t SegmentAnythingPromptProcessor::tick() {
   auto result = bbox_tensor.value()->reshapeCustom(
   prompt_tensor_shape, gxf::PrimitiveType::kFloat32,
       gxf::PrimitiveTypeSize(gxf::PrimitiveType::kFloat32),
-  gxf::Unexpected{GXF_UNINITIALIZED_VALUE}, gxf::MemoryStorageType::kDevice, allocator_.get());  
+  gxf::Unexpected{GXF_UNINITIALIZED_VALUE}, gxf::MemoryStorageType::kDevice, allocator_.get());
   if(!result){
     GXF_LOG_ERROR("Error allocating tensor for points tensor.");
     return gxf::ToResultCode(result);
   }
-  cudaMemcpy(bbox_tensor.value()->pointer(), prompt_vec.data(), buffer_size,cudaMemcpyHostToDevice);
-  
+  cudaMemcpyAsync(
+      bbox_tensor.value()->pointer(), prompt_vec.data(), buffer_size,cudaMemcpyHostToDevice,
+      cuda_stream_);
+
   // Create Tensor for labels corresponding to each point
   gxf::Shape label_tensor_shape({batch_size,num_points});
   uint32_t buffer_size_label{batch_size*num_points*sizeof(float)};
@@ -193,7 +210,9 @@ gxf_result_t SegmentAnythingPromptProcessor::tick() {
     GXF_LOG_ERROR("Error allocating tensor for label tensor.");
     return gxf::ToResultCode(label_tensor_result);
   }
-  cudaMemcpy(labels_tensor.value()->pointer(), label_vec.data(), buffer_size_label,cudaMemcpyHostToDevice); 
+  cudaMemcpyAsync(
+      labels_tensor.value()->pointer(), label_vec.data(), buffer_size_label,cudaMemcpyHostToDevice,
+      cuda_stream_);
 
   // Create Tensor to put has_input_mask data
   gxf::Shape has_in_mask({1});
@@ -207,8 +226,10 @@ gxf_result_t SegmentAnythingPromptProcessor::tick() {
     GXF_LOG_ERROR("Error allocating tensor for has input mask tensor.");
     return gxf::ToResultCode(has_input_mask_result);
   }
-  cudaMemcpy(has_input_mask_tensor.value()->pointer(), has_input_mask.data(), sizeof(float), cudaMemcpyHostToDevice);
-  
+  cudaMemcpyAsync(
+      has_input_mask_tensor.value()->pointer(), has_input_mask.data(), sizeof(float),
+      cudaMemcpyHostToDevice, cuda_stream_);
+
   // Create Tensor to put original image shape data
   gxf::Shape img_size_tensor_shape({2});
   std::vector<float> img_size(2);
@@ -217,12 +238,19 @@ gxf_result_t SegmentAnythingPromptProcessor::tick() {
   auto img_size_tensor_result = img_size_tensor.value()->reshapeCustom(
   img_size_tensor_shape, gxf::PrimitiveType::kFloat32,
       gxf::PrimitiveTypeSize(gxf::PrimitiveType::kFloat32),
-  gxf::Unexpected{GXF_UNINITIALIZED_VALUE}, gxf::MemoryStorageType::kDevice, allocator_.get());  
+  gxf::Unexpected{GXF_UNINITIALIZED_VALUE}, gxf::MemoryStorageType::kDevice, allocator_.get());
   if(!img_size_tensor_result){
     GXF_LOG_ERROR("Error allocating tensor for image size tensor.");
     return gxf::ToResultCode(img_size_tensor_result);
   }
-  cudaMemcpy(img_size_tensor.value()->pointer(),img_size.data(), 2*sizeof(float),cudaMemcpyHostToDevice);
+  cudaMemcpyAsync(
+      img_size_tensor.value()->pointer(),img_size.data(), 2*sizeof(float),
+      cudaMemcpyHostToDevice, cuda_stream_);
+
+  if (cudaStreamSynchronize(cuda_stream_) != cudaSuccess) {
+    GXF_LOG_ERROR("Failed to synchronize stream");
+    return GXF_FAILURE;
+  }
 
   out_points_->publish(std::move(out_message.value()));
   return GXF_SUCCESS;

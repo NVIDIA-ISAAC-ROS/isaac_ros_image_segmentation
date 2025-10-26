@@ -1,6 +1,6 @@
 %YAML 1.2
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2022-2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2022-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -44,10 +44,11 @@ components:
   type: nvidia::gxf::CudaStreamPool
   parameters:
     dev_id: 0
-    stream_flags: 0
+    stream_flags: 1
     stream_priority: 0
     reserved_size: 1
-    max_size: 5
+    max_size: 1
+    nvtx_identifier: "unet_decoder_node_stream"
 - type: nvidia::isaac_ros::SegmentationPostprocessor
   parameters:
     in: input_tensor
@@ -115,6 +116,15 @@ components:
     storage_type: 1
     block_size: 1566720
     num_blocks: 40
+- name: stream_pool
+  type: nvidia::gxf::CudaStreamPool
+  parameters:
+    dev_id: 0
+    stream_flags: 1
+    stream_priority: 0
+    reserved_size: 1
+    max_size: 1
+    nvtx_identifier: "segmentation_mask_generator_stream_pool"
 - type: nvidia::isaac_ros::SegmentationMaskColorizer
   parameters:
     raw_segmentation_mask_input: input_video_buffer
@@ -122,6 +132,7 @@ components:
     allocator: allocator
     color_palette: []
     color_segmentation_mask_encoding: "rgb8"
+    stream_pool: stream_pool
 ---
 name: raw_segmentation_mask_sink
 components:
@@ -179,6 +190,7 @@ components:
     clock: clock
     stop_on_deadlock: false
     worker_thread_number: 2
+    worker_thread_name_id: "unet_decoder_node"
 - type: nvidia::gxf::JobStatistics
   parameters:
     clock: clock

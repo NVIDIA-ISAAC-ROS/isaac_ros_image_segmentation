@@ -1,0 +1,30 @@
+# This service is used to add objects for the SAM2 tracking.
+
+
+# request
+std_msgs/Header request_header
+
+# Each bbox_id should be unique. Should be empty if no bbox to add.
+string[] bbox_object_ids
+
+# Array of bounding boxes.
+vision_msgs/BoundingBox2D[] bbox_coords
+
+# Each unique id would represent a object. Upto 5 points can be added per object.
+string[] point_object_ids
+
+# Array of points.
+vision_msgs/Point2D[] point_coords
+
+# Should be empty or size should be same as number of points.
+int32[] point_labels # 1 for foreground, 0 for background
+
+---
+
+# response
+string[] object_ids # All the object ids in the system
+int32[] object_indices # their corresponding indices in the segmentation mask tensor
+
+bool success # True if objects were added successfully, false otherwise
+string message # Optional status or error message
+

@@ -48,6 +48,8 @@ private:
 
   // Needed to calculate block size. It is max batch size for prompt bboxes
   int16_t max_batch_size_;
+
+  std::string tensor_name_;
 };
 
 }  // namespace segment_anything

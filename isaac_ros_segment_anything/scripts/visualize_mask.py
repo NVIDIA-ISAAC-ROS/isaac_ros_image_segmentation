@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,45 +33,57 @@ class SegmentAnythingVisualization(Node):
 
         self._bridge = cv_bridge.CvBridge()
         self._mask_subscriber = Subscriber(
-            self, TensorList, 'segment_anything/raw_segmentation_mask')
+            self, TensorList, '/segment_anything/raw_segmentation_mask')
 
         self._image_subscriber = Subscriber(
             self, Image, '/yolov8_encoder/resize/image')
 
         self._processed_image_pub = self.create_publisher(
-            Image, 'segment_anything/colored_segmentation_mask', 10)
+            Image, '/segment_anything/colored_segmentation_mask', 10)
 
-        self._color_palette = ['556B2F', '800000', '008080', '000080', '9ACD32', 'FF0000',
-                               'FF8C00', 'FFD700', '00FF00', 'BA55D3', '00FA9A', '00FFFF',
-                               '0000FF', 'F08080', 'FF00FF', '1E90FF', 'DDA0DD', 'FF1493',
-                               '87CEFA', 'FFDEAD']
+        # Pre-convert color palette from hex to RGB for better performance
+        hex_colors = ['800000', '556B2F', '008080', '000080', '9ACD32', 'FF0000',
+                      'FF8C00', 'FFD700', '00FF00', 'BA55D3', '00FA9A', '00FFFF',
+                      '0000FF', 'F08080', 'FF00FF', '1E90FF', 'DDA0DD', 'FF1493',
+                      '87CEFA', 'FFDEAD']
+
+        self._color_palette = np.array([
+            [int(color[i:i+2], 16) for i in (0, 2, 4)]
+            for color in hex_colors
+        ], dtype=np.uint8)
+
         self.sync = TimeSynchronizer([self._image_subscriber, self._mask_subscriber], 50)
         self.sync.registerCallback(self.callback)
 
     def callback(self, img, masks):
         input_image = self._bridge.imgmsg_to_cv2(img, 'rgb8')
         tensor = masks.tensors[0]
-        shape = tensor.shape
 
-        dimensions = shape.dims.tolist()
+        # Extract dimensions directly from shape
+        dimensions = tensor.shape.dims.tolist()
+        num_masks = dimensions[0]
 
-        data = np.array(tensor.data.tolist())
-        data = data.reshape(dimensions[:])
+        # Reshape data more efficiently
+        data = np.array(tensor.data.tolist(), dtype=np.uint8).reshape(dimensions)
 
-        rgb_image = np.zeros((dimensions[2], dimensions[3], 3), dtype=np.uint8)
+        # Start with the original image instead of an empty array
+        result_image = input_image.copy()
+        # Apply mask colors directly to the result image
+        for n in range(num_masks):
+            pallet_idx = min(n, len(self._color_palette) - 1)
+            mask = data[n, 0, :, :] > 0
+            if np.any(mask):  # Only process if mask has positive values
+                # For pixels where mask exists, blend with 50% transparency
+                result_image[mask] = cv2.addWeighted(
+                    input_image[mask], 0.4,
+                    np.full((np.count_nonzero(mask), 3),
+                            self._color_palette[pallet_idx], dtype=np.uint8),
+                    0.6, 0
+                )
 
-        for n in range(dimensions[0]):
-            palette_idx = n
-
-            if (n >= len(self._color_palette)):
-                palette_idx = len(self._color_palette) - 1
-
-            rgb_val = [int(self._color_palette[palette_idx][i:i+2], 16) for i in (0, 2, 4)]
-            rgb_image[:, :, :][np.where(data[n, 0, :, :] > 0)] = np.array(rgb_val)
-        result_image = cv2.addWeighted(input_image, 0.5, rgb_image, 0.5, 0)
-
-        processed_img = self._bridge.cv2_to_imgmsg(
-            result_image, encoding='rgb8')
+        # Publish the processed image
+        processed_img = self._bridge.cv2_to_imgmsg(result_image, encoding='rgb8')
+        processed_img.header = img.header  # Maintain timestamp and frame_id
         self._processed_image_pub.publish(processed_img)
 
 

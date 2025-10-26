@@ -18,6 +18,7 @@
 #include <cuda_runtime.h>
 #include <string>
 
+#include "isaac_ros_common/cuda_stream.hpp"
 #include "isaac_ros_nitros_tensor_list_type/nitros_tensor_builder.hpp"
 #include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list_builder.hpp"
 #include "isaac_ros_segment_anything/segment_anything_dummy_mask_publisher_node.hpp"
@@ -42,7 +43,13 @@ DummyMaskPublisher::DummyMaskPublisher(const rclcpp::NodeOptions options)
       this, "mask",
       nvidia::isaac_ros::nitros::nitros_tensor_list_nchw_rgb_f32_t::supported_type_name)},
   tensor_name_{declare_parameter<std::string>("tensor_name", "input_mask")}
-{}
+{
+  // Initialize CUDA stream
+  CHECK_CUDA_ERROR(
+    ::nvidia::isaac_ros::common::initNamedCudaStream(
+      stream_, "isaac_ros_dummy_mask_publisher_node"),
+    "Error initializing CUDA stream");
+}
 
 DummyMaskPublisher::~DummyMaskPublisher() = default;
 
@@ -51,16 +58,23 @@ void DummyMaskPublisher::InputCallback(const nvidia::isaac_ros::nitros::NitrosTe
   // Buffer size for mask
   size_t buffer_size{256 * 256 * 4};
 
-  // Allocate CUDA buffer
+  // Allocate CUDA buffer in the stream to not block the main default stream and other work.
   void * buffer;
-  cudaMalloc(&buffer, buffer_size);
-  cudaMemset(buffer, 0, buffer_size);
+  CHECK_CUDA_ERROR(
+    cudaMallocAsync(&buffer, buffer_size, stream_),
+    "Failed to allocate GPU memory");
+  CHECK_CUDA_ERROR(
+    cudaMemsetAsync(buffer, 0, buffer_size, stream_),
+    "Failed to zero GPU memory");
 
   // Adding header data
   std_msgs::msg::Header header;
   header.stamp.sec = msg.GetTimestampSeconds();
   header.stamp.nanosec = msg.GetTimestampNanoseconds();
   header.frame_id = msg.GetFrameId();
+
+  // Sync the stream
+  CHECK_CUDA_ERROR(cudaStreamSynchronize(stream_), "Failed to synchronize CUDA stream");
 
   // Create tensor list with tensor wrapping CUDA buffer
   nvidia::isaac_ros::nitros::NitrosTensorList tensor_list =
@@ -77,7 +91,6 @@ void DummyMaskPublisher::InputCallback(const nvidia::isaac_ros::nitros::NitrosTe
     )
     )
     .Build();
-
   nitros_pub_->publish(tensor_list);
 }
 

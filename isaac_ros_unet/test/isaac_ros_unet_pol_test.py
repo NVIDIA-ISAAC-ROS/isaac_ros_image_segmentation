@@ -107,6 +107,7 @@ def generate_test_description():
             'output_binding_names': ['softmax_1'],
             'verbose': False,
             'force_engine_update': False,
+            'max_workspace_size': 512*1024*1024,  # 512MB
         }])
     unet_decoder_node = ComposableNode(
         name='UNetDecoderNode',

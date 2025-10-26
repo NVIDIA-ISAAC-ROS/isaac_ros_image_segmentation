@@ -45,19 +45,19 @@ gxf::Expected<gxf::Handle<gxf::Tensor>> GetTensor(gxf::Entity entity, const char
 
 gxf::Expected<Shape> GetShape(gxf::Handle<gxf::Tensor> in_tensor) {
   Shape shape{};
-  
+
   shape.batch_size = in_tensor->shape().dimension(0);
   shape.channels = in_tensor->shape().dimension(1);
   shape.height = in_tensor->shape().dimension(2);
   shape.width = in_tensor->shape().dimension(3);
-    
-  // Only single channel 
+
+  // Only single channel
   if (shape.channels != kExpectedChannelCount) {
     GXF_LOG_ERROR("Received %d input channels, which is larger than the maximum allowable %d",
                   shape.channels, kExpectedChannelCount);
     return gxf::Unexpected{GXF_FAILURE};
   }
-  
+
   return shape;
 }
 
@@ -160,7 +160,7 @@ gxf_result_t SegmentAnythingPostprocessor::tick() {
   Shape shape = maybe_shape.value();
 
   auto out_message = gxf::Entity::New(context());
-  
+
   if (!out_message) {
     GXF_LOG_ERROR("Failed to allocate message");
     return gxf::ToResultCode(out_message);
@@ -180,8 +180,7 @@ gxf_result_t SegmentAnythingPostprocessor::tick() {
   cudaStream_t cuda_stream = maybe_cuda_stream.value();
 
   gxf::Expected<void> maybe_kernel_result;
-  
-   
+
   auto raw_tensor = out_message.value().add<gxf::Tensor>();
 
   if (!raw_tensor) {
@@ -202,13 +201,22 @@ gxf_result_t SegmentAnythingPostprocessor::tick() {
 
   maybe_kernel_result =
       GenerateSegmentationMask(shape, in_tensor, output_video_buffer_data, cuda_stream);
-  
+
   auto maybe_added_timestamp = AddInputTimestampToOutput(out_message.value(), in_message.value());
   if (!maybe_added_timestamp) { return gxf::ToResultCode(maybe_added_timestamp); }
 
 
   auto maybe_added_stream = AddStreamToOutput(out_message.value(), stream_);
   if (!maybe_added_stream) { return gxf::ToResultCode(maybe_added_stream); }
+
+  // Sync the stream, before sending it across the framework.
+  // This is important to do since Isaac does not support non synced work across
+  // codelets and multiple nodes.
+  cudaError_t sync_result = cudaStreamSynchronize(cuda_stream);
+  if (sync_result != cudaSuccess) {
+    GXF_LOG_ERROR("Error while synchronizing CUDA stream: %s", cudaGetErrorString(sync_result));
+    return GXF_FAILURE;
+  }
 
   return gxf::ToResultCode(out_->publish(std::move(out_message.value())));
 }
