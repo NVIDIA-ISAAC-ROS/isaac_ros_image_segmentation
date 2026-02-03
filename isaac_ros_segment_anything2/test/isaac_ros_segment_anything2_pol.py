@@ -204,7 +204,7 @@ def generate_test_description():
 
     rosbag_play = launch.actions.ExecuteProcess(
         cmd=['ros2', 'bag', 'play', '-l', os.path.dirname(__file__) +
-             '/../../resources/rosbags/segment_anything_sample_data',
+             '/rosbags/segment_anything_sample_data',
              '--remap',
              '/image:=' +
              IsaacROSSegmentAnything2Test.generate_namespace() + '/image',
@@ -252,7 +252,7 @@ class IsaacROSSegmentAnything2Test(IsaacROSBaseTest):
     DATA_LENGTH = STRIDES[0] * DIMENSIONS[0]
 
     filepath = pathlib.Path(os.path.dirname(__file__) +
-                            '/../../resources/rosbags/segment_anything_sample_data')
+                            '/rosbags/segment_anything_sample_data')
 
     def test_segment_anything(self) -> None:
         self.node._logger.info('Starting Isaac ROS SAM POL Test')
