@@ -13,20 +13,36 @@
 
 set -e
 
+if [ -n "$TENSORRT_COMMAND" ]; then
+  # If a custom tensorrt is used, ensure it's lib directory is added to the LD_LIBRARY_PATH
+  export LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:$(readlink -f "$(dirname "${TENSORRT_COMMAND}")/../../../lib/$(uname -p)-linux-gnu/")"
+  echo "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH}"
+fi
+if [ -z "$ISAAC_ROS_WS" ] && [ -n "$MODEL_PATH" ]; then
+  ISAAC_ROS_WS="$(readlink -f $(dirname ${MODEL_PATH})/../../../..)"
+fi
+
 ASSET_NAME="deployable_quantized_vanilla_unet_onnx_v2.0"
 EULA_URL="https://catalog.ngc.nvidia.com/orgs/nvidia/teams/tao/models/peoplesemsegnet"
 ASSET_DIR="${ISAAC_ROS_WS}/isaac_ros_assets/models/peoplesemsegnet/${ASSET_NAME}"
 ASSET_INSTALL_PATHS="${ASSET_DIR}/1/model.plan"
 MODEL_URL="https://api.ngc.nvidia.com/v2/models/org/nvidia/team/tao/peoplesemsegnet/deployable_quantized_vanilla_unet_onnx_v2.0/files?redirect=true&path=peoplesemsegnet_vanilla_unet_dynamic_etlt_int8_fp16.onnx"
 
-source "isaac_ros_asset_eula.sh"
+source "${ISAAC_ROS_ASSET_EULA_SH:-isaac_ros_asset_eula.sh}"
 
 mkdir -p $(dirname "$ASSET_INSTALL_PATHS")
 
-wget "${MODEL_URL}" -O "${ASSET_DIR}/model.onnx"
+isaac_ros_common_download_asset --url "${MODEL_URL}" --output-path "${ASSET_DIR}/model.onnx" --cache-path "${ISAAC_ROS_PEOPLESEMSEGNET_VANILLA_MODEL}"
+MODEL_DOWNLOAD_RESULT=$?
+if [[ -n ${ISAAC_ROS_ASSETS_TEST} ]]; then
+  exit ${MODEL_DOWNLOAD_RESULT}
+elif [[ ${MODEL_DOWNLOAD_RESULT} -ne 0 ]]; then
+  echo "ERROR: Failed to download PeopleSemSegnet vanilla model."
+  exit 1
+fi
 
 echo "Converting PeopleSemSegnet onnx file to plan file."
-/usr/src/tensorrt/bin/trtexec \
+${TENSORRT_COMMAND:-/usr/src/tensorrt/bin/trtexec} \
     --maxShapes="input_1:0":1x3x544x960 \
     --minShapes="input_1:0":1x3x544x960 \
     --optShapes="input_1:0":1x3x544x960 \

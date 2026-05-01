@@ -13,20 +13,35 @@
 
 set -e
 
+if [ -n "$TENSORRT_COMMAND" ]; then
+  # If a custom tensorrt is used, ensure it's lib directory is added to the LD_LIBRARY_PATH
+  export LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:$(readlink -f "$(dirname "${TENSORRT_COMMAND}")/../../../lib/$(uname -m)-linux-gnu/")"
+  echo "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH}"
+fi
+if [ -z "$ISAAC_ROS_WS" ] && [ -n "$MODEL_PATH" ]; then
+  ISAAC_ROS_WS="$(readlink -f $(dirname ${MODEL_PATH})/../../../..)"
+fi
 ASSET_NAME="optimized_deployable_shuffleseg_unet_amr_v1.0"
 EULA_URL="https://catalog.ngc.nvidia.com/orgs/nvidia/teams/isaac/models/optimized-peoplesemseg-amr"
 ASSET_DIR="${ISAAC_ROS_WS}/isaac_ros_assets/models/peoplesemsegnet/${ASSET_NAME}"
 ASSET_INSTALL_PATHS="${ASSET_DIR}/1/model.plan"
 MODEL_URL="https://api.ngc.nvidia.com/v2/models/org/nvidia/team/isaac/optimized-peoplesemseg-amr/v1.0/files?redirect=true&path=model.onnx"
 
-source "isaac_ros_asset_eula.sh"
+source "${ISAAC_ROS_ASSET_EULA_SH:-isaac_ros_asset_eula.sh}"
 
 mkdir -p $(dirname "$ASSET_INSTALL_PATHS")
 
-wget "${MODEL_URL}" -O "${ASSET_DIR}/model.onnx"
+isaac_ros_common_download_asset --url "${MODEL_URL}" --output-path "${ASSET_DIR}/model.onnx" --cache-path "${ISAAC_ROS_PEOPLESEMSEGNET_SHUFFLESEG_MODEL}"
+MODEL_DOWNLOAD_RESULT=$?
+if [[ -n ${ISAAC_ROS_ASSETS_TEST} ]]; then
+  exit ${MODEL_DOWNLOAD_RESULT}
+elif [[ ${MODEL_DOWNLOAD_RESULT} -ne 0 ]]; then
+  echo "ERROR: Failed to download PeopleSemSegnet shuffleseg amr model."
+  exit 1
+fi
 
 echo "Converting PeopleSemSegnet shuffleseg amr onnx file to plan file."
-/usr/src/tensorrt/bin/trtexec \
+${TENSORRT_COMMAND:-/usr/src/tensorrt/bin/trtexec} \
     --maxShapes="input_2":1x544x960x3 \
     --minShapes="input_2":1x544x960x3 \
     --optShapes="input_2":1x544x960x3 \
