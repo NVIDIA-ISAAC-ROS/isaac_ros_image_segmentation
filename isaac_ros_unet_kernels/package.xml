@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 
 <!--
-SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,9 +20,9 @@ SPDX-License-Identifier: Apache-2.0
 
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>gxf_isaac_ros_unet</name>
-  <version>4.4.0</version>
-  <description>Segmentation post-processor extension.</description>
+  <name>isaac_ros_unet_kernels</name>
+  <version>4.5.0</version>
+  <description>CUDA kernels for the U-Net decoder node (segmentation post-processing and mask colorization).</description>
 
   <maintainer email="isaac-ros-maintainers@nvidia.com">Isaac ROS Maintainers</maintainer>
   <license>Apache-2.0</license>
@@ -32,7 +32,6 @@ SPDX-License-Identifier: Apache-2.0
   <buildtool_depend>ament_cmake_auto</buildtool_depend>
 
   <depend>isaac_ros_common</depend>
-  <depend>isaac_ros_gxf</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

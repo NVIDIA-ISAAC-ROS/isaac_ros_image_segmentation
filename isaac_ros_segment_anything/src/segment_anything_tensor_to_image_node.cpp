@@ -56,28 +56,19 @@ TensorToImageNode::TensorToImageNode(const rclcpp::NodeOptions & options)
   input_qos_{::isaac_ros::common::AddQosParameter(*this, kDefaultQoS, "input_qos")},
   output_qos_{::isaac_ros::common::AddQosParameter(*this, kDefaultQoS, "output_qos")}
 {
-  // Initialize NITROS subscriber
-  tensor_list_sub_ =
-    std::make_shared<nvidia::isaac_ros::nitros::ManagedNitrosSubscriber<
-        nvidia::isaac_ros::nitros::NitrosTensorListView>>(
-    this,
-    "segmentation_tensor",
-    nvidia::isaac_ros::nitros::nitros_tensor_list_nchw_t::supported_type_name,
-    std::bind(
-      &TensorToImageNode::TensorListCallback, this,
-      std::placeholders::_1),
-    nvidia::isaac_ros::nitros::NitrosDiagnosticsConfig(),
-    input_qos_);
+  // Initialize subscriber
+  rclcpp::SubscriptionOptions sub_options;
+  sub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Enable;
+  tensor_list_sub_ = create_subscription<nvidia::isaac_ros::nitros::NitrosTensorList>(
+    "segmentation_tensor", input_qos_,
+    std::bind(&TensorToImageNode::TensorListCallback, this, std::placeholders::_1),
+    sub_options);
 
-  // Initialize NITROS publisher
-  binary_mask_pub_ =
-    std::make_shared<nvidia::isaac_ros::nitros::ManagedNitrosPublisher<
-        nvidia::isaac_ros::nitros::NitrosImage>>(
-    this,
-    "binary_mask",
-    nvidia::isaac_ros::nitros::nitros_image_mono8_t::supported_type_name,
-    nvidia::isaac_ros::nitros::NitrosDiagnosticsConfig(),
-    output_qos_);
+  // Initialize publisher
+  rclcpp::PublisherOptions pub_options;
+  pub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Enable;
+  binary_mask_pub_ = create_publisher<nvidia::isaac_ros::nitros::NitrosImage>(
+    "binary_mask", output_qos_, pub_options);
 
   // Initialize standard ROS publisher for detections
   detection_pub_ = create_publisher<vision_msgs::msg::Detection2DArray>(
@@ -93,31 +84,30 @@ TensorToImageNode::TensorToImageNode(const rclcpp::NodeOptions & options)
 }
 
 void TensorToImageNode::TensorListCallback(
-  const nvidia::isaac_ros::nitros::NitrosTensorListView & tensor_list_view)
+  const nvidia::isaac_ros::nitros::NitrosTensorList::ConstSharedPtr & tensor_list_msg)
 {
   try {
     // Get all tensors and verify we have at least one
-    const auto tensor_views = tensor_list_view.GetAllTensor();
-    if (tensor_views.empty()) {
+    if (tensor_list_msg->get_tensors().empty()) {
       throw std::runtime_error("TensorList is empty");
     }
 
     // Get the first tensor in the list
-    const auto & tensor_view = tensor_views[0];
+    const auto & tensor = tensor_list_msg->get_tensors().at(0);
 
-    if (tensor_view.GetRank() != 4) {
-      std::string rank_str = std::to_string(tensor_view.GetRank());
+    if (tensor.GetRank() != 4) {
+      std::string rank_str = std::to_string(tensor.GetRank());
       throw std::runtime_error("Tensor has incorrect rank, expected rank 4 but got " + rank_str);
     }
 
     // Get height and width, the input is a tensor of shape [batch_size, 1, height, width]
-    int height = static_cast<int>(tensor_view.GetDimension(2));
-    int width = static_cast<int>(tensor_view.GetDimension(3));
-    int batch_size = static_cast<int>(tensor_view.GetDimension(0));
-    int num_channels = static_cast<int>(tensor_view.GetDimension(1));
+    int height = static_cast<int>(tensor.shape().dims()[2]);
+    int width = static_cast<int>(tensor.shape().dims()[3]);
+    int batch_size = static_cast<int>(tensor.shape().dims()[0]);
+    int num_channels = static_cast<int>(tensor.shape().dims()[1]);
 
     // Get size for tensor data elements in bytes
-    uint64_t element_size = tensor_view.GetBytesPerElement();
+    uint64_t element_size = tensor.bytes_per_element();
 
     RCLCPP_DEBUG(
       get_logger(), "Width: %d, height: %d, element_size: %lu",
@@ -150,14 +140,13 @@ void TensorToImageNode::TensorListCallback(
       cudaMallocAsync(&gpu_buffer, height * width * element_size, stream_),
       "Failed to allocate GPU memory");
 
-    // Copy the tensor data to the GPU memory, this is required since NitrosPUblishers and
-    // Subscribers rely on the underlying GXF memory to manage the memory. But this doesn't work
-    // when we take the raw pointer from the tensor view and pass it to the NitrosImageBuilder.
-    // This is because we break the assumotion that the memory will always be part of a single
-    // type of GXF object (e.g. VideoBuffer, Tensor, etc).
+    // Copy the tensor data into the freshly allocated buffer rather than handing the tensor
+    // view's pointer to NitrosImageBuilder: Nitros publishers expect to own the buffer backing
+    // a published message, so aliasing memory that belongs to an upstream tensor leads to
+    // lifetime/ownership corruption downstream.
     CHECK_CUDA_ERROR(
       cudaMemcpyAsync(
-        gpu_buffer, tensor_view.GetBuffer(), height * width * element_size,
+        gpu_buffer, tensor.GetBuffer(stream_), height * width * element_size,
         cudaMemcpyDeviceToDevice, stream_),
       "Failed to copy tensor data to GPU memory");
 
@@ -176,19 +165,19 @@ void TensorToImageNode::TensorListCallback(
 
     // Create a header for the mask
     std_msgs::msg::Header header;
-    header.frame_id = tensor_list_view.GetFrameId();
-    header.stamp.sec = tensor_list_view.GetTimestampSeconds();
-    header.stamp.nanosec = tensor_list_view.GetTimestampNanoseconds();
+    header.frame_id = tensor_list_msg->get_frame_id();
+    header.stamp.sec = static_cast<int32_t>(tensor_list_msg->get_timestamp_sec());
+    header.stamp.nanosec = tensor_list_msg->get_timestamp_nsec();
 
     // Create and publish the image directly from tensor data
     // Note: const_cast is safe here as the data won't be modified, just read
     auto mask_image = nvidia::isaac_ros::nitros::NitrosImageBuilder()
       .WithHeader(header)
       .WithDimensions(height, width)
-      .WithEncoding(GetImageEncoding(tensor_view.GetBytesPerElement()))
+      .WithEncoding(GetImageEncoding(tensor.bytes_per_element()))
       .WithGpuData(gpu_buffer)
       .Build();
-    binary_mask_pub_->publish(mask_image);
+    binary_mask_pub_->publish(std::move(mask_image));
     RCLCPP_DEBUG(
       get_logger(),
       "Published image with dimensions %dx%d", width, height);

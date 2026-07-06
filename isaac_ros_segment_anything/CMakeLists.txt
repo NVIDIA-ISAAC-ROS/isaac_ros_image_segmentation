@@ -27,14 +27,21 @@ ament_auto_find_build_dependencies()
 enable_language(CUDA)
 # Decoder node
 
-ament_auto_add_library(segment_anything_decoder_node SHARED src/segment_anything_decoder_node.cpp)
+ament_auto_add_library(segment_anything_decoder_node SHARED
+  src/segment_anything_decoder_node.cpp
+  src/segment_anything_binarize_tensor.cu)
 rclcpp_components_register_nodes(segment_anything_decoder_node "nvidia::isaac_ros::segment_anything::SegmentAnythingDecoderNode")
 set(node_plugins
-"${node_plugins}nvidia::isaac_ros::segment_anything::SegmentAnythingDecoderNode;$<TARGET_FILE:segment_antyhing_decoder_node>\n")
+"${node_plugins}nvidia::isaac_ros::segment_anything::SegmentAnythingDecoderNode;$<TARGET_FILE:segment_anything_decoder_node>\n")
 set_target_properties(segment_anything_decoder_node PROPERTIES
   BUILD_WITH_INSTALL_RPATH TRUE
   BUILD_RPATH_USE_ORIGIN TRUE
   INSTALL_RPATH_USE_LINK_PATH TRUE)
+set_source_files_properties(
+  src/segment_anything_binarize_tensor.cu
+  include/isaac_ros_segment_anything/segment_anything_binarize_tensor.hpp
+  PROPERTIES LANGUAGE CUDA
+)
 
 ament_auto_add_library(segment_anything_data_encoder_node SHARED src/segment_anything_data_encoder_node.cpp)
 rclcpp_components_register_nodes(segment_anything_data_encoder_node "nvidia::isaac_ros::segment_anything::SegmentAnythingDataEncoderNode")

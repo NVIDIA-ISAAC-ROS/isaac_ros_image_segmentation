@@ -14,7 +14,7 @@
 // limitations under the License.
 //
 // SPDX-License-Identifier: Apache-2.0
-#include "segmentation_postprocessor.cu.hpp"
+#include "isaac_ros_unet_kernels/segmentation_postprocessor.cu.hpp"
 
 namespace nvidia {
 namespace isaac_ros {

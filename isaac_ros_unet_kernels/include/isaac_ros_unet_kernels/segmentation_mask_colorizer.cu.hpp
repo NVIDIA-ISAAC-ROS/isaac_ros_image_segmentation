@@ -14,8 +14,8 @@
 // limitations under the License.
 //
 // SPDX-License-Identifier: Apache-2.0
-#ifndef NVIDIA_ISAAC_ROS_GXF_EXTENSIONS_SEGMENTATION_MASK_COLORIZER_CU_HPP_
-#define NVIDIA_ISAAC_ROS_GXF_EXTENSIONS_SEGMENTATION_MASK_COLORIZER_CU_HPP_
+#ifndef ISAAC_ROS_UNET_KERNELS__SEGMENTATION_MASK_COLORIZER_CU_HPP_
+#define ISAAC_ROS_UNET_KERNELS__SEGMENTATION_MASK_COLORIZER_CU_HPP_
 
 #include <cstdint>
 #include <memory>
@@ -42,4 +42,4 @@ void ColorizeSegmentationMask(uint8_t* colored_segmentation_mask, uint32_t width
 }  // namespace isaac_ros
 }  // namespace nvidia
 
-#endif  // NVIDIA_ISAAC_ROS_GXF_EXTENSIONS_SEGMENTATION_MASK_COLORIZER_CU_HPP_
+#endif  // ISAAC_ROS_UNET_KERNELS__SEGMENTATION_MASK_COLORIZER_CU_HPP_

@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-// Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,16 +17,17 @@
 
 #include "isaac_ros_segment_anything/segment_anything_decoder_node.hpp"
 
-#include <map>
 #include <memory>
 #include <string>
-#include <unordered_map>
-#include <vector>
 
 #include "rclcpp/rclcpp.hpp"
-#include "sensor_msgs/image_encodings.hpp"
-#include "isaac_ros_nitros_image_type/nitros_image.hpp"
+
 #include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list.hpp"
+#include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list_builder.hpp"
+#include "isaac_ros_nitros_tensor_list_type/nitros_tensor_builder.hpp"
+#include "isaac_ros_nitros_tensor_list_type/nitros_tensor_shape.hpp"
+#include "isaac_ros_nitros_tensor_list_type/nitros_data_type.hpp"
+#include "isaac_ros_segment_anything/segment_anything_binarize_tensor.hpp"
 
 namespace nvidia
 {
@@ -34,91 +35,121 @@ namespace isaac_ros
 {
 namespace segment_anything
 {
+
 namespace
 {
-
-using nvidia::gxf::optimizer::GraphIOGroupSupportedDataTypesInfoList;
-
-constexpr char INPUT_COMPONENT_KEY[] = "segmentation_postprocessor/input_tensor";
-constexpr char INPUT_DEFAULT_TENSOR_FORMAT[] = "nitros_tensor_list_nchw_rgb_f32";
-constexpr char INPUT_TOPIC_NAME[] = "tensor_sub";
-
-constexpr char RAW_OUTPUT_COMPONENT_KEY[] = "raw_segmentation_mask_sink/sink";
-constexpr char RAW_OUTPUT_DEFAULT_TENSOR_FORMAT[] = "nitros_tensor_list_nchw";
-constexpr char RAW_OUTPUT_TOPIC_NAME[] = "segment_anything/raw_segmentation_mask";
-
-constexpr char APP_YAML_FILENAME[] = "config/segment_anything_decoder_node.yaml";
-constexpr char PACKAGE_NAME[] = "isaac_ros_segment_anything";
-
-const std::vector<std::pair<std::string, std::string>> EXTENSIONS = {
-  {"isaac_ros_gxf", "gxf/lib/std/libgxf_std.so"},
-  {"isaac_ros_gxf", "gxf/lib/cuda/libgxf_cuda.so"},
-  {"gxf_isaac_ros_segment_anything", "gxf/lib/libgxf_isaac_ros_segment_anything.so"}};
-
-const std::vector<std::string> PRESET_EXTENSION_SPEC_NAMES = {};
-const std::vector<std::string> EXTENSION_SPEC_FILENAMES = {
-  "config/segment_anything_spec_file.yaml"
-};
-const std::vector<std::string> GENERATOR_RULE_FILENAMES = {};
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wpedantic"
-const nitros::NitrosPublisherSubscriberConfigMap CONFIG_MAP = {
-  {INPUT_COMPONENT_KEY,
-    {
-      .type = nitros::NitrosPublisherSubscriberType::NEGOTIATED,
-      .qos = rclcpp::QoS(1),
-      .compatible_data_format = INPUT_DEFAULT_TENSOR_FORMAT,
-      .topic_name = INPUT_TOPIC_NAME,
-    }},
-  {RAW_OUTPUT_COMPONENT_KEY,
-    {
-      .type = nitros::NitrosPublisherSubscriberType::NEGOTIATED,
-      .qos = rclcpp::QoS(1),
-      .compatible_data_format = RAW_OUTPUT_DEFAULT_TENSOR_FORMAT,
-      .topic_name = RAW_OUTPUT_TOPIC_NAME,
-      .frame_id_source_key = INPUT_COMPONENT_KEY,
-    }}
-};
-#pragma GCC diagnostic pop
+constexpr int32_t kExpectedChannelCount = 1;
 }  // namespace
 
 SegmentAnythingDecoderNode::SegmentAnythingDecoderNode(const rclcpp::NodeOptions options)
-: nitros::NitrosNode(
-    options,
-    APP_YAML_FILENAME,
-    CONFIG_MAP,
-    PRESET_EXTENSION_SPEC_NAMES,
-    EXTENSION_SPEC_FILENAMES,
-    GENERATOR_RULE_FILENAMES,
-    EXTENSIONS,
-    PACKAGE_NAME),
+: rclcpp::Node("segment_anything_decoder", options),
   mask_width_(declare_parameter<int16_t>("mask_width", 960)),
   mask_height_(declare_parameter<int16_t>("mask_height", 544)),
   max_batch_size_(declare_parameter<int16_t>("max_batch_size", 20)),
   tensor_name_(declare_parameter<std::string>("tensor_name", ""))
 {
-  registerSupportedType<nvidia::isaac_ros::nitros::NitrosImage>();
-  registerSupportedType<nvidia::isaac_ros::nitros::NitrosTensorList>();
-  startNitrosNode();
+  cudaStreamCreate(&cuda_stream_);
+
+  // Initialize publisher
+  rclcpp::PublisherOptions pub_options;
+  pub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Enable;
+  output_pub_ = create_publisher<NitrosTensorList>(
+    "segment_anything/raw_segmentation_mask", rclcpp::QoS(1), pub_options);
+
+  // Initialize subscriber
+  rclcpp::SubscriptionOptions sub_options;
+  sub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Enable;
+  input_sub_ = create_subscription<NitrosTensorList>(
+    "tensor_sub", rclcpp::QoS(1),
+    std::bind(&SegmentAnythingDecoderNode::InputCallback, this, std::placeholders::_1),
+    sub_options);
 }
 
-void SegmentAnythingDecoderNode::postLoadGraphCallback()
+SegmentAnythingDecoderNode::~SegmentAnythingDecoderNode()
 {
-  const uint64_t block_size(mask_width_ * mask_height_ * max_batch_size_);
-
-  getNitrosContext().setParameterUInt64(
-    "segmentation_postprocessor",
-    "nvidia::gxf::BlockMemoryPool", "block_size", block_size
-  );
-  getNitrosContext().setParameterStr(
-    "segmentation_postprocessor",
-    "nvidia::isaac_ros::SegmentAnythingPostprocessor",
-    "tensor_name", tensor_name_
-  );
+  if (cuda_stream_) {
+    cudaStreamDestroy(cuda_stream_);
+  }
 }
 
-SegmentAnythingDecoderNode::~SegmentAnythingDecoderNode() = default;
+void SegmentAnythingDecoderNode::InputCallback(
+  const NitrosTensorList::ConstSharedPtr & msg)
+{
+  // Get the tensor by name, or fall back to the first tensor
+  if (msg->get_tensors().empty()) {
+    RCLCPP_ERROR(get_logger(), "Input tensor list is empty");
+    return;
+  }
+  std::shared_ptr<nitros::NitrosTensor> named_tensor;
+  if (!tensor_name_.empty()) {
+    named_tensor = msg->get_tensor_by_name(tensor_name_);
+    if (!named_tensor) {
+      RCLCPP_ERROR(get_logger(), "Tensor '%s' not found in input list", tensor_name_.c_str());
+      return;
+    }
+  }
+  const nitros::NitrosTensor & tensor =
+    named_tensor ? *named_tensor : msg->get_tensors().at(0);
+
+  // Validate shape: expect NCHW with channels == 1
+  if (tensor.shape().rank() != 4) {
+    RCLCPP_ERROR(
+      get_logger(), "Expected 4D tensor (NCHW), got rank %u", tensor.shape().rank());
+    return;
+  }
+
+  int32_t batch_size = tensor.shape().dims()[0];
+  int32_t channels = tensor.shape().dims()[1];
+  int32_t height = tensor.shape().dims()[2];
+  int32_t width = tensor.shape().dims()[3];
+
+  if (channels != kExpectedChannelCount) {
+    RCLCPP_ERROR(
+      get_logger(),
+      "Expected %d channel(s), got %d", kExpectedChannelCount, channels);
+    return;
+  }
+
+  // Total number of elements
+  size_t num_elements = batch_size * channels * height * width;
+
+  // Allocate output buffer (uint8) on GPU
+  void * output_gpu = nullptr;
+  cudaMalloc(&output_gpu, num_elements * sizeof(uint8_t));
+
+  // Run threshold kernel: float > 0 → 1, else → 0
+  const float * input_data = reinterpret_cast<const float *>(
+    tensor.get_read_handle(msg->get_stream()).get_ptr());
+  ThresholdFloatToUint8OnGPU(
+    input_data, static_cast<uint8_t *>(output_gpu), num_elements, cuda_stream_);
+
+  cudaError_t kernel_err = cudaGetLastError();
+  if (kernel_err != cudaSuccess) {
+    RCLCPP_ERROR(
+      get_logger(), "CUDA kernel error: %s", cudaGetErrorString(kernel_err));
+    cudaFree(output_gpu);
+    return;
+  }
+
+  cudaStreamSynchronize(cuda_stream_);
+
+  // Build output tensor list
+  std_msgs::msg::Header header = msg->get_header();
+
+  auto output_tensor_list = nitros::NitrosTensorListBuilder()
+    .WithHeader(header)
+    .AddTensor(
+      "",
+      nitros::NitrosTensorBuilder()
+    .WithShape(nitros::NitrosTensorShape({batch_size, channels, height, width}))
+    .WithDataType(nitros::NitrosDataType::kUnsigned8)
+    .WithData(output_gpu)
+    .WithReleaseCallback([output_gpu]() {cudaFree(output_gpu);})
+    .Build())
+    .Build();
+
+  output_pub_->publish(std::move(output_tensor_list));
+}
 
 }  // namespace segment_anything
 }  // namespace isaac_ros

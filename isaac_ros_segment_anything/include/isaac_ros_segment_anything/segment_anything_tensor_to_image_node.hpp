@@ -21,10 +21,8 @@
 #include <string>
 
 #include "isaac_ros_common/qos.hpp"
-#include "isaac_ros_managed_nitros/managed_nitros_publisher.hpp"
-#include "isaac_ros_managed_nitros/managed_nitros_subscriber.hpp"
 #include "isaac_ros_nitros_image_type/nitros_image.hpp"
-#include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list_view.hpp"
+#include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "vision_msgs/msg/detection2_d_array.hpp"
 
@@ -60,20 +58,16 @@ private:
    * @brief Callback for processing incoming TensorList messages.
    * @param tensor_list The received TensorList message.
    */
-  void TensorListCallback(const nvidia::isaac_ros::nitros::NitrosTensorListView & tensor_list);
+  void TensorListCallback(
+    const nvidia::isaac_ros::nitros::NitrosTensorList::ConstSharedPtr & tensor_list_msg);
 
   // QoS settings
   rclcpp::QoS input_qos_;
   rclcpp::QoS output_qos_;
 
-  // NITROS subscribers and publishers
-  std::shared_ptr<
-    nvidia::isaac_ros::nitros::ManagedNitrosSubscriber<
-      nvidia::isaac_ros::nitros::NitrosTensorListView>> tensor_list_sub_;
-
-  std::shared_ptr<
-    nvidia::isaac_ros::nitros::ManagedNitrosPublisher<
-      nvidia::isaac_ros::nitros::NitrosImage>> binary_mask_pub_;
+  // Subscribers and publishers
+  rclcpp::Subscription<nvidia::isaac_ros::nitros::NitrosTensorList>::SharedPtr tensor_list_sub_;
+  rclcpp::Publisher<nvidia::isaac_ros::nitros::NitrosImage>::SharedPtr binary_mask_pub_;
 
   // Standard ROS publisher for bounding boxes
   rclcpp::Publisher<vision_msgs::msg::Detection2DArray>::SharedPtr detection_pub_;

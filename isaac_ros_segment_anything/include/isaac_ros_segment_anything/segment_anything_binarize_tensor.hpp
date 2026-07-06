@@ -30,6 +30,10 @@ namespace segment_anything
 // Binarizes tensor data on GPU by setting all non-zero values to 255
 void BinarizeTensorOnGPU(uint8_t * tensor, size_t size, cudaStream_t stream);
 
+// Thresholds float tensor to uint8: output[i] = (input[i] > 0) ? 1 : 0
+void ThresholdFloatToUint8OnGPU(
+  const float * input, uint8_t * output, size_t size, cudaStream_t stream);
+
 // Struct to hold bounding box coordinates
 struct BoundingBox
 {

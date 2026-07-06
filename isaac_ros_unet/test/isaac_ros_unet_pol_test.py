@@ -84,6 +84,7 @@ def generate_test_description():
             'input_image_height': '632',
             'network_image_width': '960',
             'network_image_height': '544',
+            'tensor_name': 'input_tensor',
             'enable_padding': 'True',
             'tensor_output_topic': 'tensor_pub',
             'attach_to_shared_component_container': 'True',
@@ -107,6 +108,7 @@ def generate_test_description():
             'output_binding_names': ['softmax_1'],
             'verbose': False,
             'force_engine_update': False,
+            'memory_pool_block_size': 1024 * 1024 * 40,
             'max_workspace_size': 512*1024*1024,  # 512MB
         }])
     unet_decoder_node = ComposableNode(

@@ -18,6 +18,7 @@
 #pragma once
 
 #include <message_filters/subscriber.h>
+#include <message_filters/synchronizer.h>
 #include <message_filters/sync_policies/exact_time.h>
 #include <memory>
 #include <string>
@@ -31,13 +32,8 @@
 #include <vision_msgs/msg/detection2_d_array.hpp>
 #include <vision_msgs/msg/detection2_d.hpp>
 
-#include "isaac_ros_managed_nitros/managed_nitros_message_filters_subscriber.hpp"
-#include "isaac_ros_managed_nitros/managed_nitros_publisher.hpp"
-#include "isaac_ros_managed_nitros/managed_nitros_subscriber.hpp"
-#include "isaac_ros_nitros_camera_info_type/nitros_camera_info.hpp"
-#include "isaac_ros_nitros_detection2_d_array_type/nitros_detection2_d_array.hpp"
 #include "isaac_ros_nitros_image_type/nitros_image.hpp"
-#include "isaac_ros_nitros_image_type/nitros_image_view.hpp"
+#include "isaac_ros_nitros/types/nitros_type_message_filter_traits.hpp"
 #include "isaac_ros_segment_anything2_interfaces/srv/add_objects.hpp"
 #include "isaac_ros_segment_anything2_interfaces/srv/remove_object.hpp"
 
@@ -74,30 +70,18 @@ private:
 
   // Subscribers
   rclcpp::Subscription<geometry_msgs::msg::Point>::SharedPtr point_sub_;
-  nvidia::isaac_ros::nitros::message_filters::Subscriber<
-    nvidia::isaac_ros::nitros::NitrosImageView>
-  image_sub_1_;
+  ::message_filters::Subscriber<nvidia::isaac_ros::nitros::NitrosImage> image_sub_1_;
   ::message_filters::Subscriber<sensor_msgs::msg::CameraInfo> camera_info_sub_1_;
-  nvidia::isaac_ros::nitros::message_filters::Subscriber<
-    nvidia::isaac_ros::nitros::NitrosImageView>
-  image_sub_2_;
+  ::message_filters::Subscriber<nvidia::isaac_ros::nitros::NitrosImage> image_sub_2_;
   ::message_filters::Subscriber<sensor_msgs::msg::CameraInfo> camera_info_sub_2_;
-  nvidia::isaac_ros::nitros::message_filters::Subscriber<
-    nvidia::isaac_ros::nitros::NitrosImageView>
-  depth_sub_;
+  ::message_filters::Subscriber<nvidia::isaac_ros::nitros::NitrosImage> depth_sub_;
 
   // Publishers
-  std::shared_ptr<
-    nvidia::isaac_ros::nitros::ManagedNitrosPublisher<nvidia::isaac_ros::nitros::NitrosImage>>
-  image_pub_1_;
+  rclcpp::Publisher<nvidia::isaac_ros::nitros::NitrosImage>::SharedPtr image_pub_1_;
   rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_pub_1_;
-  std::shared_ptr<
-    nvidia::isaac_ros::nitros::ManagedNitrosPublisher<nvidia::isaac_ros::nitros::NitrosImage>>
-  image_pub_2_;
+  rclcpp::Publisher<nvidia::isaac_ros::nitros::NitrosImage>::SharedPtr image_pub_2_;
   rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_pub_2_;
-  std::shared_ptr<
-    nvidia::isaac_ros::nitros::ManagedNitrosPublisher<nvidia::isaac_ros::nitros::NitrosImage>>
-  depth_pub_;
+  rclcpp::Publisher<nvidia::isaac_ros::nitros::NitrosImage>::SharedPtr depth_pub_;
   rclcpp::Publisher<vision_msgs::msg::Detection2DArray>::SharedPtr detection_pub_;
 
   // Service clients
