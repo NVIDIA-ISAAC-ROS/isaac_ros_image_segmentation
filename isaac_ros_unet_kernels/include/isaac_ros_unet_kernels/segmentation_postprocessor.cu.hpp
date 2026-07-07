@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-// Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// Copyright (c) 2022-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,8 +14,8 @@
 // limitations under the License.
 //
 // SPDX-License-Identifier: Apache-2.0
-#ifndef NVIDIA_ISAAC_ROS_GXF_EXTENSIONS_SEGMENT_ANYTHING_POSTPROCESSOR_CU_HPP_
-#define NVIDIA_ISAAC_ROS_GXF_EXTENSIONS_SEGMENT_ANYTHING_POSTPROCESSOR_CU_HPP_
+#ifndef ISAAC_ROS_UNET_KERNELS__SEGMENTATION_POSTPROCESSOR_CU_HPP_
+#define ISAAC_ROS_UNET_KERNELS__SEGMENTATION_POSTPROCESSOR_CU_HPP_
 
 #include <cstdint>
 #include <limits>
@@ -27,18 +27,35 @@ namespace nvidia {
 namespace isaac_ros {
 
 struct Shape {
-  int32_t batch_size;
   int32_t height;
   int32_t width;
   int32_t channels;
 };
 
+enum class NetworkOutputType {
+  kArgmax,
+  kSigmoid,
+  kSoftmax,
+};
+
+enum class DataFormat {
+  kNCHW,
+  kHWC,
+  kNHWC,
+};
+
 typedef uint8_t output_type_t;
 
-static constexpr int32_t kExpectedChannelCount = 1;
+static constexpr int64_t kMaxChannelCount = std::numeric_limits<output_type_t>::max();
 
-void cuda_postprocess(Shape shape, const float* input, output_type_t* output, cudaStream_t stream);
+void cuda_postprocess(NetworkOutputType network_output_type, DataFormat data_format, Shape shape,
+                      const float* input, output_type_t* output, cudaStream_t stream);
+
+template <typename T>
+void CopyTensorData(NetworkOutputType network_output_type, DataFormat data_format, Shape shape,
+                    const T* input, output_type_t* output, cudaStream_t stream);
+
 }  // namespace isaac_ros
 }  // namespace nvidia
 
-#endif  // NVIDIA_ISAAC_ROS_GXF_EXTENSIONS_SEGMENTATION_POSTPROCESSOR_CU_HPP_
+#endif  // ISAAC_ROS_UNET_KERNELS__SEGMENTATION_POSTPROCESSOR_CU_HPP_

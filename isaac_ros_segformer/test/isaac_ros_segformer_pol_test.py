@@ -93,6 +93,7 @@ def generate_test_description():
             'input_image_height': '632',
             'network_image_width': '512',
             'network_image_height': '512',
+            'tensor_name': 'input_tensor',
             'enable_padding': 'True',
             'final_tensor_name': 'input_tensor',
             'tensor_output_topic': 'tensor_pub',
@@ -129,6 +130,7 @@ def generate_test_description():
         namespace=IsaacROSSegformerPipelineTest.generate_namespace(_TEST_CASE_NAMESPACE),
         parameters=[{
             'network_output_type': 'argmax',
+            'data_format': 'NCHW',
             'color_segmentation_mask_encoding': 'rgb8',
             'color_palette': generate_random_color_palette(20),  # 20 classes
         }])

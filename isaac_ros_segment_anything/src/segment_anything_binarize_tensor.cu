@@ -48,6 +48,22 @@ void BinarizeTensorOnGPU(uint8_t * tensor, const size_t size, cudaStream_t strea
   BinarizeTensorKernel <<< num_blocks, kBlockSize, 0, stream >>> (tensor, size);
 }
 
+__global__ void ThresholdFloatToUint8Kernel(
+  const float * input, uint8_t * output, const size_t size)
+{
+  const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx < size) {
+    output[idx] = (input[idx] > 0.0f) ? 1 : 0;
+  }
+}
+
+void ThresholdFloatToUint8OnGPU(
+  const float * input, uint8_t * output, const size_t size, cudaStream_t stream)
+{
+  const int num_blocks = (size + kBlockSize - 1) / kBlockSize;
+  ThresholdFloatToUint8Kernel <<< num_blocks, kBlockSize, 0, stream >>> (input, output, size);
+}
+
 // CUDA kernel to find min/max coordinates of non-zero values
 __global__ void FindBoundingBoxKernel(
   const uint8_t * data, int width, int height,

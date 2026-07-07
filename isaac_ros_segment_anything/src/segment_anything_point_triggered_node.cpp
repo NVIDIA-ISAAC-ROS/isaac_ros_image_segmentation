@@ -89,13 +89,10 @@ SegmentAnythingPointTriggeredNode::SegmentAnythingPointTriggeredNode(
     "remove_object", rclcpp::ServicesQoS(), client_callback_group_);
 
   // Initialize common subscribers and publishers for all modes
-  image_sub_1_.subscribe(this, "image_1", input_qos_profile, sub_options);
-  camera_info_sub_1_.subscribe(this, "camera_info_1", input_qos_profile, sub_options);
-  image_pub_1_ = std::make_shared<
-    nvidia::isaac_ros::nitros::ManagedNitrosPublisher<nvidia::isaac_ros::nitros::NitrosImage>>(
-    this, "image_1_triggered",
-    nvidia::isaac_ros::nitros::nitros_image_rgb8_t::supported_type_name,
-    nvidia::isaac_ros::nitros::NitrosDiagnosticsConfig(), output_qos);
+  rclcpp::PublisherOptions pub_options;
+  pub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Enable;
+  image_pub_1_ = create_publisher<nvidia::isaac_ros::nitros::NitrosImage>(
+    "image_1_triggered", output_qos, pub_options);
   camera_info_pub_1_ = this->create_publisher<
     sensor_msgs::msg::CameraInfo>("camera_info_1_triggered", output_qos);
   detection_pub_ = this->create_publisher<
@@ -103,47 +100,47 @@ SegmentAnythingPointTriggeredNode::SegmentAnythingPointTriggeredNode(
 
   if (mode_ == modeToStringMap.at(CameraDropMode::Mono)) {
     // Mode 0: Camera + CameraInfo (mono)
-    // Initialize sync policy
+    // Initialize sync policy and register callback before subscribing
     exact_sync_mode_0_ = std::make_shared<ExactSyncMode0>(
       ExactPolicyMode0(sync_queue_size_), image_sub_1_,
       camera_info_sub_1_);
     using namespace std::placeholders;
     exact_sync_mode_0_->registerCallback(
       std::bind(&SegmentAnythingPointTriggeredNode::sync_callback_mode_0, this, _1, _2));
+    image_sub_1_.subscribe(this, "image_1", input_qos_profile, sub_options);
+    camera_info_sub_1_.subscribe(this, "camera_info_1", input_qos_profile, sub_options);
   } else if (mode_ == modeToStringMap.at(CameraDropMode::Stereo)) {
     // Mode 1: Camera + CameraInfo + Camera + CameraInfo (stereo)
-    // Initialize second mono subscribers and publishers
-    image_sub_2_.subscribe(this, "image_2", input_qos_profile, sub_options);
-    camera_info_sub_2_.subscribe(this, "camera_info_2", input_qos_profile, sub_options);
-    image_pub_2_ = std::make_shared<
-      nvidia::isaac_ros::nitros::ManagedNitrosPublisher<nvidia::isaac_ros::nitros::NitrosImage>>(
-      this, "image_2_triggered",
-      nvidia::isaac_ros::nitros::nitros_image_rgb8_t::supported_type_name,
-      nvidia::isaac_ros::nitros::NitrosDiagnosticsConfig(), output_qos);
+    // Initialize second mono publishers
+    image_pub_2_ = create_publisher<nvidia::isaac_ros::nitros::NitrosImage>(
+      "image_2_triggered", output_qos, pub_options);
     camera_info_pub_2_ = this->create_publisher<
       sensor_msgs::msg::CameraInfo>("camera_info_2_triggered", output_qos);
-    // Initialize sync policy
+    // Initialize sync policy and register callback before subscribing
     exact_sync_mode_1_ = std::make_shared<ExactSyncMode1>(
       ExactPolicyMode1(sync_queue_size_), image_sub_1_, camera_info_sub_1_, image_sub_2_,
       camera_info_sub_2_);
     using namespace std::placeholders;
     exact_sync_mode_1_->registerCallback(
       std::bind(&SegmentAnythingPointTriggeredNode::sync_callback_mode_1, this, _1, _2, _3, _4));
+    image_sub_1_.subscribe(this, "image_1", input_qos_profile, sub_options);
+    camera_info_sub_1_.subscribe(this, "camera_info_1", input_qos_profile, sub_options);
+    image_sub_2_.subscribe(this, "image_2", input_qos_profile, sub_options);
+    camera_info_sub_2_.subscribe(this, "camera_info_2", input_qos_profile, sub_options);
   } else if (mode_ == modeToStringMap.at(CameraDropMode::MonoDepth)) {
     // Mode 2: Camera + CameraInfo + Depth (mono+depth)
-    // Initialize depth subscriber and publisher
-    depth_sub_.subscribe(
-      this, "depth_1", input_qos_profile, sub_options,
-      depth_format_string_);
-    depth_pub_ = std::make_shared<
-      nvidia::isaac_ros::nitros::ManagedNitrosPublisher<nvidia::isaac_ros::nitros::NitrosImage>>(
-      this, "depth_1_triggered", depth_format_string_);
-    // Initialize sync policy
+    // Initialize depth publisher
+    depth_pub_ = create_publisher<nvidia::isaac_ros::nitros::NitrosImage>(
+      "depth_1_triggered", output_qos, pub_options);
+    // Initialize sync policy and register callback before subscribing
     exact_sync_mode_2_ = std::make_shared<ExactSyncMode2>(
       ExactPolicyMode2(sync_queue_size_), image_sub_1_, camera_info_sub_1_, depth_sub_);
     using namespace std::placeholders;
     exact_sync_mode_2_->registerCallback(
       std::bind(&SegmentAnythingPointTriggeredNode::sync_callback_mode_2, this, _1, _2, _3));
+    image_sub_1_.subscribe(this, "image_1", input_qos_profile, sub_options);
+    camera_info_sub_1_.subscribe(this, "camera_info_1", input_qos_profile, sub_options);
+    depth_sub_.subscribe(this, "depth_1", input_qos_profile, sub_options);
   } else {
     RCLCPP_ERROR(get_logger(), "Invalid mode: %s", mode_.c_str());
   }

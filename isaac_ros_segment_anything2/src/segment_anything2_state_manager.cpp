@@ -330,7 +330,7 @@ bool SAM2StateManager::addObject(
     new_bbox_ids_.push_back(obj_id);
     RCLCPP_INFO(
       node_->get_logger(),
-      "Added object with id: %s with bbox top_left: %f %f and bottom_right: %f %f and idx:%d",
+      "Added object with id: %s with bbox top_left: %f %f and bottom_right: %f %f and idx:%zu",
       obj_id.c_str(), bbox.value().top_left_x, bbox.value().top_left_y,
       bbox.value().bottom_right_x, bbox.value().bottom_right_y,
       output_mask_idx_to_obj_id_.size() - 1);
@@ -342,7 +342,7 @@ bool SAM2StateManager::addObject(
     new_point_ids_.push_back(obj_id);
     RCLCPP_INFO(
       node_->get_logger(),
-      "Added object with id: %s with idx:%d", obj_id.c_str(),
+      "Added object with id: %s with idx:%zu", obj_id.c_str(),
       output_mask_idx_to_obj_id_.size() - 1);
     for (int i = 0; i < points.value().size(); i += 2) {
       RCLCPP_INFO(node_->get_logger(), "Points: %f %f", points.value()[i], points.value()[i + 1]);
@@ -458,8 +458,8 @@ int64_t * SAM2StateManager::getPermutationBuffer(cudaStream_t stream)
 
   // Helper lambda to find object in new IDs list and calculate permutation
   auto calculatePermutation = [](const std::vector<std::string> & new_ids,
-      const std::string & object_id,
-      int base_offset) -> std::optional<int> {
+    const std::string & object_id,
+    int base_offset) -> std::optional<int> {
       auto new_id_it = std::find(new_ids.begin(), new_ids.end(), object_id);
       if (new_id_it != new_ids.end()) {
         int distance = std::distance(new_ids.begin(), new_id_it);

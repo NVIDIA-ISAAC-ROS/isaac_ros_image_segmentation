@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-// Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,7 +23,12 @@
 #include <vector>
 
 #include "rclcpp/rclcpp.hpp"
-#include "isaac_ros_nitros/nitros_node.hpp"
+#include "isaac_ros_common/cuda_stream.hpp"
+#include "isaac_ros_nitros/types/cuda_memory_pool.hpp"
+#include "isaac_ros_nitros_image_type/nitros_image.hpp"
+#include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list.hpp"
+#include "isaac_ros_unet_kernels/segmentation_postprocessor.cu.hpp"
+#include "isaac_ros_unet_kernels/segmentation_mask_colorizer.cu.hpp"
 
 namespace nvidia
 {
@@ -32,32 +37,38 @@ namespace isaac_ros
 namespace unet
 {
 
-class UNetDecoderNode : public nitros::NitrosNode
+class UNetDecoderNode : public rclcpp::Node
 {
 public:
   explicit UNetDecoderNode(const rclcpp::NodeOptions options = rclcpp::NodeOptions());
   ~UNetDecoderNode();
 
-  void postLoadGraphCallback() override;
-
 private:
-  // The color encoding that the colored segmentation mask should be in
-  // This should be either rgb8 or bgr8
+  void TensorCallback(
+    const nvidia::isaac_ros::nitros::NitrosTensorList::ConstSharedPtr & msg);
+
+  // Parameters
   std::string color_segmentation_mask_encoding_;
-
-  // The color palette for the color segmentation mask
-  // There should be an element for each class
-  // Note: only the first 24 bits are used
   std::vector<int64_t> color_palette_;
-
-  // Whether sigmoid or softmax was performed by the network
   std::string network_output_type_;
-
-  // The width of the segmentation mask
+  std::string data_format_;
   int16_t mask_width_;
-
-  // The height of the segmentation mask
   int16_t mask_height_;
+
+  // Parsed enum values
+  nvidia::isaac_ros::NetworkOutputType network_output_type_value_;
+  nvidia::isaac_ros::DataFormat data_format_value_;
+  nvidia::isaac_ros::ColorImageEncodings color_encoding_value_;
+
+  // ROS 2 pub/sub
+  rclcpp::Subscription<nvidia::isaac_ros::nitros::NitrosTensorList>::SharedPtr tensor_sub_;
+  rclcpp::Publisher<nvidia::isaac_ros::nitros::NitrosImage>::SharedPtr raw_mask_pub_;
+  rclcpp::Publisher<nvidia::isaac_ros::nitros::NitrosImage>::SharedPtr colored_mask_pub_;
+
+  // CUDA resources
+  ::nvidia::isaac_ros::common::CudaStreamPtr cuda_stream_;
+  nvidia::isaac_ros::nitros::CUDAMemoryPool pool_;
+  nvidia::isaac_ros::ArrayView<int64_t> color_palette_device_;
 };
 
 }  // namespace unet

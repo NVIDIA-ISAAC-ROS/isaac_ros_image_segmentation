@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-// Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,12 +18,14 @@
 #ifndef ISAAC_ROS_SEGMENT_ANYTHING__SEGMENT_ANYTHING_DECODER_NODE_HPP_
 #define ISAAC_ROS_SEGMENT_ANYTHING__SEGMENT_ANYTHING_DECODER_NODE_HPP_
 
+#include <cuda_runtime.h>
+
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "rclcpp/rclcpp.hpp"
-#include "isaac_ros_nitros/nitros_node.hpp"
+
+#include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list.hpp"
 
 namespace nvidia
 {
@@ -32,24 +34,29 @@ namespace isaac_ros
 namespace segment_anything
 {
 
-class SegmentAnythingDecoderNode : public nitros::NitrosNode
+class SegmentAnythingDecoderNode : public rclcpp::Node
 {
 public:
   explicit SegmentAnythingDecoderNode(const rclcpp::NodeOptions options = rclcpp::NodeOptions());
   ~SegmentAnythingDecoderNode();
 
-  void postLoadGraphCallback() override;
-
 private:
+  using NitrosTensorList = nvidia::isaac_ros::nitros::NitrosTensorList;
+
+  void InputCallback(const NitrosTensorList::ConstSharedPtr & msg);
+
+  // Subscriber and publisher
+  rclcpp::Subscription<NitrosTensorList>::SharedPtr input_sub_;
+  rclcpp::Publisher<NitrosTensorList>::SharedPtr output_pub_;
+
+  // Parameters
   int16_t mask_width_;
-
-  // The height of the segmentation mask
   int16_t mask_height_;
-
-  // Needed to calculate block size. It is max batch size for prompt bboxes
   int16_t max_batch_size_;
-
   std::string tensor_name_;
+
+  // CUDA stream
+  cudaStream_t cuda_stream_{};
 };
 
 }  // namespace segment_anything

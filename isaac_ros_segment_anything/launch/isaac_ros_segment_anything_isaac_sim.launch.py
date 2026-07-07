@@ -156,7 +156,7 @@ def generate_launch_description():
     yolov8_encoder_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             [os.path.join(encoder_dir, 'launch',
-                          'dnn_image_encoder.launch.py')]
+                          'dnn_image_encoder_nodes.launch.py')]
         ),
         launch_arguments={
             'input_image_width': input_image_width,
@@ -171,6 +171,7 @@ def generate_launch_description():
             'image_input_topic': '/front_stereo_camera/left/image_rect_color',
             'camera_info_input_topic': '/front_stereo_camera/left/camera_info',
             'tensor_output_topic': '/tensor_pub',
+            'final_tensor_name': 'input_tensor',
         }.items(),
     )
 

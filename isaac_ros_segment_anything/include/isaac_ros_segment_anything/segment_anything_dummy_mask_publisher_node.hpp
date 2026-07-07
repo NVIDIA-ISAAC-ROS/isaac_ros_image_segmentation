@@ -25,10 +25,6 @@
 
 #include "rclcpp/rclcpp.hpp"
 
-#include "isaac_ros_managed_nitros/managed_nitros_subscriber.hpp"
-#include "isaac_ros_managed_nitros/managed_nitros_publisher.hpp"
-
-#include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list_view.hpp"
 #include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list.hpp"
 namespace nvidia
 {
@@ -45,21 +41,20 @@ public:
   ~DummyMaskPublisher();
 
 private:
-  void InputCallback(const nvidia::isaac_ros::nitros::NitrosTensorListView & msg);
+  void InputCallback(
+    const nvidia::isaac_ros::nitros::NitrosTensorList::ConstSharedPtr & msg);
 
   // Subscription to input NitrosTensorList messages
-  std::shared_ptr<nvidia::isaac_ros::nitros::ManagedNitrosSubscriber<
-      nvidia::isaac_ros::nitros::NitrosTensorListView>> nitros_sub_;
+  rclcpp::Subscription<nvidia::isaac_ros::nitros::NitrosTensorList>::SharedPtr nitros_sub_;
 
   // Publisher for output NitrosTensorList messages
-  std::shared_ptr<nvidia::isaac_ros::nitros::ManagedNitrosPublisher<
-      nvidia::isaac_ros::nitros::NitrosTensorList>> nitros_pub_;
+  rclcpp::Publisher<nvidia::isaac_ros::nitros::NitrosTensorList>::SharedPtr nitros_pub_;
 
   // Name of tensor in NitrosTensorList
   std::string tensor_name_{};
 
   // CUDA stream for async operations
-  cudaStream_t stream_;
+  cudaStream_t stream_{nullptr};
 };
 
 }  // namespace segment_anything

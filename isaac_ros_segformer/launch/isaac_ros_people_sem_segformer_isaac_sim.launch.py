@@ -153,6 +153,7 @@ def generate_launch_description():
             'image_input_topic': '/front_stereo_camera/left/image_rect_color',
             'camera_info_input_topic': '/front_stereo_camera/left/camera_info',
             'tensor_output_topic': '/tensor_pub',
+            'tensor_name': 'input_tensor',
             'attach_to_shared_component_container': 'True',
             'component_container_name': container_name,
         }.items(),
@@ -180,6 +181,7 @@ def generate_launch_description():
         plugin='nvidia::isaac_ros::unet::UNetDecoderNode',
         parameters=[{
             'network_output_type': network_output_type,
+            'data_format': 'NCHW',
             'color_segmentation_mask_encoding': color_segmentation_mask_encoding,
             'mask_width': mask_width,
             'mask_height': mask_height,

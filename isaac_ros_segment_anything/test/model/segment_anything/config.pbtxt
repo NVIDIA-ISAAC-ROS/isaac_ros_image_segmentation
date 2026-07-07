@@ -50,6 +50,13 @@ output [
     dims: [-1, 1, -1, -1]
   }
 ]
+instance_group [
+  {
+    count: 1
+    kind: KIND_GPU
+    gpus: [ 0 ]
+  }
+]
 version_policy: {
   specific {
     versions: [ 1 ]

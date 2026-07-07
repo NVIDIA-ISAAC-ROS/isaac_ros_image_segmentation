@@ -69,6 +69,7 @@ class IsaacROSSegformerLaunchFragment(IsaacROSLaunchFragment):
                 plugin='nvidia::isaac_ros::unet::UNetDecoderNode',
                 parameters=[{
                     'network_output_type': network_output_type,
+                    'data_format': 'NCHW',
                     'color_segmentation_mask_encoding': color_segmentation_mask_encoding,
                     'mask_width': mask_width,
                     'mask_height': mask_height,
@@ -185,6 +186,7 @@ class IsaacROSSegformerLaunchFragment(IsaacROSLaunchFragment):
                     'image_input_topic': '/image_rect',
                     'camera_info_input_topic': '/camera_info_rect',
                     'tensor_output_topic': '/tensor_pub',
+                    'tensor_name': 'input_tensor',
                 }.items(),
             ),
         }

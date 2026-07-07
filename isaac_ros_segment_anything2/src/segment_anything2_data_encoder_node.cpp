@@ -37,37 +37,39 @@ constexpr char kDefaultQoS[] = "DEFAULT";
 
 nvidia::isaac_ros::nitros::NitrosTensorShape getImageShape()
 {
-  return {1, 3, 1024, 1024};
+  return nvidia::isaac_ros::nitros::NitrosTensorShape{1, 3, 1024, 1024};
 }
 nvidia::isaac_ros::nitros::NitrosTensorShape getMaskMemoryTensorShape(int32_t batch_size)
 {
-  return {batch_size, 4, 64, 64, 64};
+  return nvidia::isaac_ros::nitros::NitrosTensorShape{batch_size, 4, 64, 64, 64};
 }
 nvidia::isaac_ros::nitros::NitrosTensorShape getObjPtrMemoryTensorShape(int32_t batch_size)
 {
-  return {batch_size, 2, 256};
+  return nvidia::isaac_ros::nitros::NitrosTensorShape{batch_size, 2, 256};
 }
 nvidia::isaac_ros::nitros::NitrosTensorShape getBboxCoordsTensorShape(int32_t num_bbox_objects)
 {
-  return {num_bbox_objects, 4};
+  return nvidia::isaac_ros::nitros::NitrosTensorShape{num_bbox_objects, 4};
 }
 nvidia::isaac_ros::nitros::NitrosTensorShape getPointCoordsTensorShape(
   int32_t num_point_objects)
 {
-  return {num_point_objects, SAM2StateManager::kMaxPointsPerObject, 2};
+  return nvidia::isaac_ros::nitros::NitrosTensorShape{
+    num_point_objects, SAM2StateManager::kMaxPointsPerObject, 2};
 }
 nvidia::isaac_ros::nitros::NitrosTensorShape getPointLabelsTensorShape(
   int32_t num_point_objects)
 {
-  return {num_point_objects, SAM2StateManager::kMaxPointsPerObject};
+  return nvidia::isaac_ros::nitros::NitrosTensorShape{
+    num_point_objects, SAM2StateManager::kMaxPointsPerObject};
 }
 nvidia::isaac_ros::nitros::NitrosTensorShape getPermutationTensorShape(int32_t batch_size)
 {
-  return {batch_size};
+  return nvidia::isaac_ros::nitros::NitrosTensorShape{batch_size};
 }
 nvidia::isaac_ros::nitros::NitrosTensorShape getOriginalSizeTensorShape()
 {
-  return {2};
+  return nvidia::isaac_ros::nitros::NitrosTensorShape{2};
 }
 
 BBox getBboxCoords(const vision_msgs::msg::BoundingBox2D & bbox)
@@ -94,33 +96,25 @@ SegmentAnything2DataEncoderNode::SegmentAnything2DataEncoderNode(const rclcpp::N
   if (orig_img_dims_param_.size() != 2) {
     throw std::runtime_error("orig_img_dims must be a vector of size 2");
   }
+  rclcpp::SubscriptionOptions sub_options;
+  sub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Enable;
+  rclcpp::PublisherOptions pub_options;
+  pub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Enable;
+
   // Initialize publisher for encoded data
-  encoded_data_pub_ = std::make_shared<nvidia::isaac_ros::nitros::ManagedNitrosPublisher<
-        nvidia::isaac_ros::nitros::NitrosTensorList>>(
-    this, "encoded_data",
-    nvidia::isaac_ros::nitros::nitros_tensor_list_nchw_rgb_f32_t::supported_type_name,
-    nvidia::isaac_ros::nitros::NitrosDiagnosticsConfig(),
-    encoded_data_qos_
-        );
+  encoded_data_pub_ = create_publisher<nvidia::isaac_ros::nitros::NitrosTensorList>(
+    "encoded_data", encoded_data_qos_, pub_options);
 
   // Initialize subscribers
-  image_sub_ = std::make_shared<nvidia::isaac_ros::nitros::ManagedNitrosSubscriber<
-        nvidia::isaac_ros::nitros::NitrosTensorListView>>(
-    this, "image",
-    nvidia::isaac_ros::nitros::nitros_tensor_list_nchw_rgb_f32_t::supported_type_name,
+  image_sub_ = create_subscription<nvidia::isaac_ros::nitros::NitrosTensorList>(
+    "image", image_qos_,
     std::bind(&SegmentAnything2DataEncoderNode::ImageCallback, this, std::placeholders::_1),
-    nvidia::isaac_ros::nitros::NitrosDiagnosticsConfig(),
-    image_qos_
-        );
+    sub_options);
 
-  memory_sub_ = std::make_shared<nvidia::isaac_ros::nitros::ManagedNitrosSubscriber<
-        nvidia::isaac_ros::nitros::NitrosTensorListView>>(
-    this, "memory",
-    nvidia::isaac_ros::nitros::nitros_tensor_list_nchw_rgb_f32_t::supported_type_name,
+  memory_sub_ = create_subscription<nvidia::isaac_ros::nitros::NitrosTensorList>(
+    "memory", memory_qos_,
     std::bind(&SegmentAnything2DataEncoderNode::MemoryCallback, this, std::placeholders::_1),
-    nvidia::isaac_ros::nitros::NitrosDiagnosticsConfig(),
-    memory_qos_
-        );
+    sub_options);
 
   // Initialize service for adding objects
   add_objects_srv_ = create_service<isaac_ros_segment_anything2_interfaces::srv::AddObjects>(
@@ -163,7 +157,7 @@ SegmentAnything2DataEncoderNode::~SegmentAnything2DataEncoderNode()
 }
 
 void SegmentAnything2DataEncoderNode::ImageCallback(
-  const nvidia::isaac_ros::nitros::NitrosTensorListView & view)
+  const nvidia::isaac_ros::nitros::NitrosTensorList::ConstSharedPtr & msg)
 {
   RCLCPP_DEBUG(get_logger(), "Received image tensor");
   int num_objects = sam2_state_manager_->getNumberOfObjects();
@@ -171,23 +165,23 @@ void SegmentAnything2DataEncoderNode::ImageCallback(
     RCLCPP_DEBUG(get_logger(), "No objects found in the state manager!");
     return;
   }
-  auto input_tensor = view.GetNamedTensor("input_tensor");
-
-  // Get timestamp from the message
-  int64_t timestamp = 0;
-  try {
-    timestamp = view.GetTimestampSeconds() * 1000000000LL + view.GetTimestampNanoseconds();
-  } catch (const std::exception & e) {
-    throw std::runtime_error("Failed to get timestamp from message");
+  auto input_tensor_ptr = msg->get_tensor_by_name("input_tensor");
+  if (!input_tensor_ptr) {
+    throw std::runtime_error("Tensor with name 'input_tensor' not found");
   }
+  const auto & input_tensor = *input_tensor_ptr;
+
+  int64_t timestamp = static_cast<int64_t>(msg->get_timestamp_sec()) * 1000000000LL +
+    static_cast<int64_t>(msg->get_timestamp_nsec());
   void * image_buffer;
+  auto input_read_handle = input_tensor.get_read_handle(stream_);
   CHECK_CUDA_ERROR(
-    cudaMallocAsync(&image_buffer, input_tensor.GetTensorSize(), stream_),
+    cudaMallocAsync(&image_buffer, input_tensor.tensor_size(), stream_),
     "Failed to allocate image buffer");
   CHECK_CUDA_ERROR(
     cudaMemcpyAsync(
-      image_buffer, input_tensor.GetBuffer(),
-      input_tensor.GetTensorSize(), cudaMemcpyDeviceToDevice, stream_),
+      image_buffer, input_read_handle.get_ptr(),
+      input_tensor.tensor_size(), cudaMemcpyDeviceToDevice, stream_),
     "Failed to copy image buffer");
 
   int32_t * original_size_buffer;
@@ -208,10 +202,7 @@ void SegmentAnything2DataEncoderNode::ImageCallback(
     return;
   }
 
-  std_msgs::msg::Header header;
-  header.stamp.sec = view.GetTimestampSeconds();
-  header.stamp.nanosec = view.GetTimestampNanoseconds();
-  header.frame_id = view.GetFrameId();
+  std_msgs::msg::Header header = msg->get_header();
   auto image_tensor = nvidia::isaac_ros::nitros::NitrosTensorBuilder()
     .WithShape(getImageShape())
     .WithDataType(nvidia::isaac_ros::nitros::NitrosDataType::kFloat32)
@@ -266,29 +257,31 @@ void SegmentAnything2DataEncoderNode::ImageCallback(
     .Build();
   CHECK_CUDA_ERROR(
     cudaStreamSynchronize(stream_), "Failed to synchronize CUDA stream in ImageCallback");
-  encoded_data_pub_->publish(tensor_list);
+  encoded_data_pub_->publish(std::move(tensor_list));
 }
 
 void SegmentAnything2DataEncoderNode::MemoryCallback(
-  const nvidia::isaac_ros::nitros::NitrosTensorListView & view)
+  const nvidia::isaac_ros::nitros::NitrosTensorList::ConstSharedPtr & msg)
 {
-  auto object_score_logits = view.GetNamedTensor("object_score_logits");
-  auto maskmem_features = view.GetNamedTensor("maskmem_features");
-  auto maskmem_pos_enc = view.GetNamedTensor("maskmem_pos_enc");
-  auto obj_ptr_features = view.GetNamedTensor("obj_ptr_features");
-  // Get timestamp from the message
-  int64_t batch_size = object_score_logits.GetShape().shape().dimension(0);
-  int64_t timestamp = 0;
-  try {
-    timestamp = view.GetTimestampSeconds() * 1000000000LL + view.GetTimestampNanoseconds();
-  } catch (const std::exception & e) {
-    throw std::runtime_error("Failed to get timestamp from message");
+  auto object_score_logits = msg->get_tensor_by_name("object_score_logits");
+  auto maskmem_features = msg->get_tensor_by_name("maskmem_features");
+  auto maskmem_pos_enc = msg->get_tensor_by_name("maskmem_pos_enc");
+  auto obj_ptr_features = msg->get_tensor_by_name("obj_ptr_features");
+  if (!object_score_logits || !maskmem_features || !maskmem_pos_enc || !obj_ptr_features) {
+    throw std::runtime_error("Missing expected tensor in memory message");
   }
+  int64_t batch_size = object_score_logits->shape().dims()[0];
+  int64_t timestamp = static_cast<int64_t>(msg->get_timestamp_sec()) * 1000000000LL +
+    static_cast<int64_t>(msg->get_timestamp_nsec());
+  auto maskmem_features_handle = maskmem_features->get_read_handle(stream_);
+  auto maskmem_pos_enc_handle = maskmem_pos_enc->get_read_handle(stream_);
+  auto obj_ptr_features_handle = obj_ptr_features->get_read_handle(stream_);
+  auto object_score_logits_handle = object_score_logits->get_read_handle(stream_);
   sam2_state_manager_->updateAllMemories(
-    reinterpret_cast<const float *>(maskmem_features.GetBuffer()),
-    reinterpret_cast<const float *>(maskmem_pos_enc.GetBuffer()),
-    reinterpret_cast<const float *>(obj_ptr_features.GetBuffer()),
-    reinterpret_cast<const float *>(object_score_logits.GetBuffer()),
+    reinterpret_cast<const float *>(maskmem_features_handle.get_ptr()),
+    reinterpret_cast<const float *>(maskmem_pos_enc_handle.get_ptr()),
+    reinterpret_cast<const float *>(obj_ptr_features_handle.get_ptr()),
+    reinterpret_cast<const float *>(object_score_logits_handle.get_ptr()),
     stream_,
     batch_size,
     timestamp

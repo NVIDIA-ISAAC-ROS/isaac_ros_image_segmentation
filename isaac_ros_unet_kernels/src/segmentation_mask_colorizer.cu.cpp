@@ -14,7 +14,7 @@
 // limitations under the License.
 //
 // SPDX-License-Identifier: Apache-2.0
-#include "segmentation_mask_colorizer.cu.hpp"
+#include "isaac_ros_unet_kernels/segmentation_mask_colorizer.cu.hpp"
 
 #include "cuda.h"
 #include "cuda_runtime.h"

@@ -185,6 +185,7 @@ def generate_test_description():
             'output_binding_names': ['high_res_masks', 'object_score_logits',
                                      'maskmem_features', 'maskmem_pos_enc', 'obj_ptr_features'],
             'output_tensor_formats': ['nitros_tensor_list_nchw_rgb_f32'],
+            'memory_pool_block_size': 3 * 1024 * 1024 * 4,
         }],
         remappings=[('tensor_pub', 'encoded_data')])
 
@@ -239,7 +240,7 @@ class IsaacROSSegmentAnything2Test(IsaacROSBaseTest):
     2. Verify received tensors are the correct dimensions and size.
     """
 
-    # Using default ROS-GXF Bridge output tensor channel configured in 'run_triton_inference' exe
+    # Using default output tensor channel configured in 'run_triton_inference' exe
     SUBSCRIBER_CHANNEL = 'segment_anything2/raw_segmentation_mask'
     # The amount of seconds to allow Triton node to run before verifying received tensors
     # Will depend on time taken for Triton engine generation
