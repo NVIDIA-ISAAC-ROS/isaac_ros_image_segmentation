@@ -44,26 +44,6 @@ bool IsSupportedInputPromptType(const std::string & prompt_type)
   return prompt_type == "bbox" || prompt_type == "point";
 }
 
-template<typename F>
-class ScopeExit
-{
-public:
-  explicit ScopeExit(F && f)
-  : f_(std::forward<F>(f)) {}
-  ~ScopeExit() {f_();}
-  ScopeExit(const ScopeExit &) = delete;
-  ScopeExit & operator=(const ScopeExit &) = delete;
-
-private:
-  F f_;
-};
-
-template<typename F>
-ScopeExit<F> MakeScopeExit(F && f)
-{
-  return ScopeExit<F>(std::forward<F>(f));
-}
-
 }  // namespace
 
 SegmentAnythingDataEncoderNode::SegmentAnythingDataEncoderNode(const rclcpp::NodeOptions options)
@@ -167,103 +147,111 @@ void SegmentAnythingDataEncoderNode::SyncCallback(
   std::vector<float> label_vec;
   DetectionToSAMPrompt(detections, prompt_vec, label_vec);
 
-  // --- Build prompt tensors on GPU ---
-
-  // Track GPU allocations so we can release them on any early-failure path.
-  // Ownership is transferred to the NitrosTensor release callbacks once
-  // allocations_released is set to true below.
-  std::vector<void *> pending_allocations;
-  bool allocations_released = false;
-  auto alloc_guard = MakeScopeExit(
-    [&] {
-      if (!allocations_released) {
-        for (void * p : pending_allocations) {
-          if (p) {cudaFree(p);}
-        }
-      }
-    });
-
-  auto try_alloc = [&](void ** ptr, size_t bytes) -> bool {
-      const cudaError_t err = cudaMalloc(ptr, bytes);
+  // Each tensor: cudaMallocAsync, wrap via from_external (ownership transfers,
+  // default cudaFree deleter), write through the returned WriteHandle. The handle
+  // dropping records a CUDA event so consumers sync via get_read_handle.
+  auto alloc_h2d_tensor =
+    [&](const std::string & name, const void * src, size_t bytes,
+    const nitros::NitrosTensorShape & shape,
+    nitros::NitrosDataType dtype, nitros::NitrosTensor & out) -> bool {
+      void * gpu_ptr = nullptr;
+      const cudaError_t err = cudaMallocAsync(&gpu_ptr, bytes, cuda_stream_);
       if (err != cudaSuccess) {
         RCLCPP_ERROR(
-          get_logger(),
-          "cudaMalloc failed for %zu bytes: %s",
-          bytes, cudaGetErrorString(err));
-        *ptr = nullptr;
+          get_logger(), "cudaMallocAsync failed for tensor '%s' (%zu bytes): %s",
+          name.c_str(), bytes, cudaGetErrorString(err));
         return false;
       }
-      pending_allocations.push_back(*ptr);
+      auto wh = out.from_external(name, gpu_ptr, bytes, shape, dtype, cuda_stream_);
+      const cudaError_t copy_err = cudaMemcpyAsync(
+        wh.get_ptr(), src, bytes, cudaMemcpyHostToDevice, cuda_stream_);
+      if (copy_err != cudaSuccess) {
+        RCLCPP_ERROR(
+          get_logger(), "cudaMemcpyAsync H2D failed for tensor '%s' (%zu bytes): %s",
+          name.c_str(), bytes, cudaGetErrorString(copy_err));
+        return false;
+      }
       return true;
     };
 
-  // Points tensor: shape [batch_size, num_points, 2]
-  uint32_t points_buffer_size = batch_size * num_points * 2 * sizeof(float);
-  void * points_gpu = nullptr;
-  if (!try_alloc(&points_gpu, points_buffer_size)) {
+  // Prompt tensors (host->device copies).
+  const uint32_t points_buffer_size = batch_size * num_points * 2 * sizeof(float);
+  nitros::NitrosTensor points_tensor;
+  if (!alloc_h2d_tensor(
+      "points", prompt_vec.data(), points_buffer_size,
+      nitros::NitrosTensorShape(
+        {static_cast<int32_t>(batch_size), static_cast<int32_t>(num_points), 2}),
+      nitros::NitrosDataType::kFloat32, points_tensor))
+  {
     return;
   }
-  cudaMemcpyAsync(
-    points_gpu, prompt_vec.data(), points_buffer_size,
-    cudaMemcpyHostToDevice, cuda_stream_);
 
-  // Labels tensor: shape [batch_size, num_points]
-  uint32_t labels_buffer_size = batch_size * num_points * sizeof(float);
-  void * labels_gpu = nullptr;
-  if (!try_alloc(&labels_gpu, labels_buffer_size)) {
+  const uint32_t labels_buffer_size = batch_size * num_points * sizeof(float);
+  nitros::NitrosTensor labels_tensor;
+  if (!alloc_h2d_tensor(
+      "labels", label_vec.data(), labels_buffer_size,
+      nitros::NitrosTensorShape(
+        {static_cast<int32_t>(batch_size), static_cast<int32_t>(num_points)}),
+      nitros::NitrosDataType::kFloat32, labels_tensor))
+  {
     return;
   }
-  cudaMemcpyAsync(
-    labels_gpu, label_vec.data(), labels_buffer_size,
-    cudaMemcpyHostToDevice, cuda_stream_);
 
-  // has_input_mask tensor: shape [1]
-  std::vector<float> has_mask_data = {has_input_mask_ ? 1.0f : 0.0f};
-  void * has_mask_gpu = nullptr;
-  if (!try_alloc(&has_mask_gpu, sizeof(float))) {
+  const std::vector<float> has_mask_data = {has_input_mask_ ? 1.0f : 0.0f};
+  nitros::NitrosTensor has_mask_tensor;
+  if (!alloc_h2d_tensor(
+      "has_input_mask", has_mask_data.data(), sizeof(float),
+      nitros::NitrosTensorShape({1}),
+      nitros::NitrosDataType::kFloat32, has_mask_tensor))
+  {
     return;
   }
-  cudaMemcpyAsync(
-    has_mask_gpu, has_mask_data.data(), sizeof(float),
-    cudaMemcpyHostToDevice, cuda_stream_);
 
-  // orig_img_dims tensor: shape [2]
-  std::vector<float> img_size_data = {
+  const std::vector<float> img_size_data = {
     static_cast<float>(orig_img_dims_[0]),
     static_cast<float>(orig_img_dims_[1])};
-  void * img_size_gpu = nullptr;
-  if (!try_alloc(&img_size_gpu, 2 * sizeof(float))) {
+  nitros::NitrosTensor img_size_tensor;
+  if (!alloc_h2d_tensor(
+      "orig_img_dims", img_size_data.data(), 2 * sizeof(float),
+      nitros::NitrosTensorShape({2}),
+      nitros::NitrosDataType::kFloat32, img_size_tensor))
+  {
     return;
   }
-  cudaMemcpyAsync(
-    img_size_gpu, img_size_data.data(), 2 * sizeof(float),
-    cudaMemcpyHostToDevice, cuda_stream_);
 
-  // --- Forward tensors from image and mask inputs ---
-  // Collect forwarded tensors: copy GPU data from inputs
-  struct ForwardedTensor
-  {
-    std::string name;
-    nitros::NitrosTensorShape shape;
-    nitros::NitrosDataType dtype;
-    void * gpu_data;
-  };
-  std::vector<ForwardedTensor> forwarded_tensors;
+  // Forward tensors from image and mask inputs (device->device copies).
+  std::vector<std::pair<std::string, nitros::NitrosTensor>> forwarded_tensors;
 
   auto forward_tensors_from_msg =
     [&](const nitros::NitrosTensorList & msg) -> bool {
-      for (const auto & tensor : msg.get_tensors()) {
-        size_t tensor_size = tensor.element_count() * tensor.bytes_per_element();
+      for (const auto & input : msg.get_tensors()) {
+        const size_t tensor_bytes = input.element_count() * input.bytes_per_element();
         void * gpu_copy = nullptr;
-        if (!try_alloc(&gpu_copy, tensor_size)) {
+        const cudaError_t err = cudaMallocAsync(&gpu_copy, tensor_bytes, cuda_stream_);
+        if (err != cudaSuccess) {
+          RCLCPP_ERROR(
+            get_logger(),
+            "cudaMallocAsync failed forwarding tensor '%s' (%zu bytes): %s",
+            input.get_name().c_str(), tensor_bytes, cudaGetErrorString(err));
           return false;
         }
-        cudaMemcpyAsync(
-          gpu_copy, tensor.get_read_handle(msg.get_stream()).get_ptr(), tensor_size,
+        nitros::NitrosTensor copy;
+        auto wh = copy.from_external(
+          input.get_name(), gpu_copy, tensor_bytes,
+          input.shape(), input.data_type(), cuda_stream_);
+        // Consumer passes cuda_stream_ so this stream waits on the producer's event.
+        auto input_read_handle = input.get_read_handle(cuda_stream_);
+        const cudaError_t copy_err = cudaMemcpyAsync(
+          wh.get_ptr(), input_read_handle.get_ptr(), tensor_bytes,
           cudaMemcpyDeviceToDevice, cuda_stream_);
-        forwarded_tensors.push_back(
-          ForwardedTensor{tensor.get_name(), tensor.shape(),
-            tensor.data_type(), gpu_copy});
+        if (copy_err != cudaSuccess) {
+          RCLCPP_ERROR(
+            get_logger(),
+            "cudaMemcpyAsync D2D failed forwarding tensor '%s' (%zu bytes): %s",
+            input.get_name().c_str(), tensor_bytes, cudaGetErrorString(copy_err));
+          return false;
+        }
+        forwarded_tensors.emplace_back(input.get_name(), std::move(copy));
       }
       return true;
     };
@@ -275,74 +263,29 @@ void SegmentAnythingDataEncoderNode::SyncCallback(
     return;
   }
 
-  // Synchronize before building output
-  cudaStreamSynchronize(cuda_stream_);
+  // Sync is still required: the prompt tensor H2D copies source from local
+  // std::vectors that go out of scope when this callback returns.
+  const cudaError_t sync_err = cudaStreamSynchronize(cuda_stream_);
+  if (sync_err != cudaSuccess) {
+    RCLCPP_ERROR(
+      get_logger(), "cudaStreamSynchronize failed before publish: %s",
+      cudaGetErrorString(sync_err));
+    return;
+  }
 
-  // --- Build composite output tensor list ---
   std_msgs::msg::Header header;
   header.stamp = prompts->header.stamp;
   header.frame_id = prompts->header.frame_id;
 
   auto builder = nitros::NitrosTensorListBuilder().WithHeader(header);
-
-  // Add prompt-derived tensors
-  builder.AddTensor(
-    "points",
-    nitros::NitrosTensorBuilder()
-    .WithShape(nitros::NitrosTensorShape(
-      {static_cast<int32_t>(batch_size),
-        static_cast<int32_t>(num_points), 2}))
-    .WithDataType(nitros::NitrosDataType::kFloat32)
-    .WithData(points_gpu)
-    .WithReleaseCallback([points_gpu]() {cudaFree(points_gpu);})
-    .Build());
-
-  builder.AddTensor(
-    "labels",
-    nitros::NitrosTensorBuilder()
-    .WithShape(nitros::NitrosTensorShape(
-      {static_cast<int32_t>(batch_size),
-        static_cast<int32_t>(num_points)}))
-    .WithDataType(nitros::NitrosDataType::kFloat32)
-    .WithData(labels_gpu)
-    .WithReleaseCallback([labels_gpu]() {cudaFree(labels_gpu);})
-    .Build());
-
-  builder.AddTensor(
-    "orig_img_dims",
-    nitros::NitrosTensorBuilder()
-    .WithShape(nitros::NitrosTensorShape({2}))
-    .WithDataType(nitros::NitrosDataType::kFloat32)
-    .WithData(img_size_gpu)
-    .WithReleaseCallback([img_size_gpu]() {cudaFree(img_size_gpu);})
-    .Build());
-
-  builder.AddTensor(
-    "has_input_mask",
-    nitros::NitrosTensorBuilder()
-    .WithShape(nitros::NitrosTensorShape({1}))
-    .WithDataType(nitros::NitrosDataType::kFloat32)
-    .WithData(has_mask_gpu)
-    .WithReleaseCallback([has_mask_gpu]() {cudaFree(has_mask_gpu);})
-    .Build());
-
-  // Add forwarded tensors from image and mask inputs
+  builder.AddTensor("points", std::move(points_tensor));
+  builder.AddTensor("labels", std::move(labels_tensor));
+  builder.AddTensor("orig_img_dims", std::move(img_size_tensor));
+  builder.AddTensor("has_input_mask", std::move(has_mask_tensor));
   for (auto & ft : forwarded_tensors) {
-    void * data = ft.gpu_data;
-    builder.AddTensor(
-      ft.name,
-      nitros::NitrosTensorBuilder()
-      .WithShape(ft.shape)
-      .WithDataType(ft.dtype)
-      .WithData(data)
-      .WithReleaseCallback([data]() {cudaFree(data);})
-      .Build());
+    builder.AddTensor(ft.first, std::move(ft.second));
   }
-
-  // All GPU buffers are now owned by the tensor release callbacks; prevent
-  // the guard from double-freeing them.
-  allocations_released = true;
-  output_pub_->publish(std::move(builder.Build()));
+  output_pub_->publish(builder.Build());
 }
 
 void SegmentAnythingDataEncoderNode::DetectionToSAMPrompt(

@@ -26,7 +26,6 @@
 #include "sensor_msgs/msg/image.hpp"
 #include "isaac_ros_tensor_list_interfaces/msg/tensor_list.hpp"
 #include "vision_msgs/msg/detection2_d_array.hpp"
-#include "isaac_ros_nitros_detection2_d_array_type/nitros_detection2_d_array.hpp"
 #include "isaac_ros_segment_anything2/segment_anything2_state_manager.hpp"
 #include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list.hpp"
 #include "isaac_ros_segment_anything2_interfaces/srv/add_objects.hpp"

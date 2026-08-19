@@ -25,6 +25,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 
+#include "isaac_ros_nitros/types/cuda_memory_pool.hpp"
 #include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list.hpp"
 
 namespace nvidia
@@ -57,6 +58,10 @@ private:
 
   // CUDA stream
   cudaStream_t cuda_stream_{};
+
+  // Pre-allocated pool for output mask buffers; sized in the constructor by
+  // max_batch_size_ * mask_height_ * mask_width_.
+  nvidia::isaac_ros::nitros::CUDAMemoryPool output_pool_;
 };
 
 }  // namespace segment_anything
