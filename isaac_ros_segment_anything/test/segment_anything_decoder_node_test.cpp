@@ -16,6 +16,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <gmock/gmock.h>
+
+#include <cstdio>
+#include <cstdlib>
+
 #include "segment_anything_decoder_node.hpp"
 #include "rclcpp/rclcpp.hpp"
 
@@ -68,5 +72,10 @@ TEST(segment_anything_decoder_node_test, test_empty_tensor_name)
 int main(int argc, char ** argv)
 {
   testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
+  const int test_result = RUN_ALL_TESTS();
+  // Workaround for EGL libraries included in VPI not tearing down
+  // (tests pass, then a double-free corrupts the heap during static destruction).
+  // Flush output and _Exit to skip global destructors and bypass the teardown abort.
+  std::fflush(nullptr);
+  std::_Exit(test_result);
 }

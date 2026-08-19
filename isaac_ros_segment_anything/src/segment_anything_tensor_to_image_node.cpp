@@ -1,5 +1,5 @@
 // SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-// Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,7 +24,6 @@
 #include "isaac_ros_common/cuda_stream.hpp"
 #include "isaac_ros_segment_anything/segment_anything_binarize_tensor.hpp"
 
-#include "isaac_ros_nitros_image_type/nitros_image_builder.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/image_encodings.hpp"
 
@@ -95,8 +94,8 @@ void TensorToImageNode::TensorListCallback(
     // Get the first tensor in the list
     const auto & tensor = tensor_list_msg->get_tensors().at(0);
 
-    if (tensor.GetRank() != 4) {
-      std::string rank_str = std::to_string(tensor.GetRank());
+    if (tensor.shape().rank() != 4) {
+      std::string rank_str = std::to_string(tensor.shape().rank());
       throw std::runtime_error("Tensor has incorrect rank, expected rank 4 but got " + rank_str);
     }
 
@@ -134,49 +133,53 @@ void TensorToImageNode::TensorListCallback(
               std::to_string(element_size));
     }
 
-    // Create a new GPU memory for this new image, with the stream object
+    // Allocate the output image buffer and wrap it in a NitrosImage via from_external.
+    // The returned WriteHandle records a CUDA event on destruction so downstream
+    // consumers automatically wait on this write via get_read_handle, replacing the
+    // need for a producer-side cudaStreamSynchronize before publish.
+    const size_t image_bytes =
+      static_cast<size_t>(height) * static_cast<size_t>(width) * element_size;
     void * gpu_buffer = nullptr;
     CHECK_CUDA_ERROR(
-      cudaMallocAsync(&gpu_buffer, height * width * element_size, stream_),
+      cudaMallocAsync(&gpu_buffer, image_bytes, stream_),
       "Failed to allocate GPU memory");
 
-    // Copy the tensor data into the freshly allocated buffer rather than handing the tensor
-    // view's pointer to NitrosImageBuilder: Nitros publishers expect to own the buffer backing
-    // a published message, so aliasing memory that belongs to an upstream tensor leads to
-    // lifetime/ownership corruption downstream.
-    CHECK_CUDA_ERROR(
-      cudaMemcpyAsync(
-        gpu_buffer, tensor.GetBuffer(stream_), height * width * element_size,
-        cudaMemcpyDeviceToDevice, stream_),
-      "Failed to copy tensor data to GPU memory");
-
-    // Binarize the tensor data on GPU
-    BinarizeTensorOnGPU(
-      static_cast<uint8_t *>(gpu_buffer),
-      height * width * element_size, stream_);
-
-    // Find bounding box around non-zero values
+    nvidia::isaac_ros::nitros::NitrosImage mask_image;
     BoundingBox bbox;
-    FindBoundingBoxOnGPU(
-      static_cast<uint8_t *>(gpu_buffer), width, height, &bbox, stream_);
+    {
+      auto mask_write_handle = mask_image.from_external(
+        gpu_buffer, image_bytes, width, height,
+        static_cast<uint32_t>(width * element_size),
+        GetImageEncoding(element_size), stream_);
+      uint8_t * mask_ptr = mask_write_handle.get_ptr();
 
-    // Sync the stream, before publishing it to prevent memory corruption errors downstream.
+      // Copy tensor data into the freshly allocated buffer rather than aliasing the
+      // input tensor's memory, which is owned by the upstream producer.
+      auto tensor_read_handle = tensor.get_read_handle(stream_);
+      CHECK_CUDA_ERROR(
+        cudaMemcpyAsync(
+          mask_ptr, tensor_read_handle.get_ptr(), image_bytes,
+          cudaMemcpyDeviceToDevice, stream_),
+        "Failed to copy tensor data to GPU memory");
+
+      BinarizeTensorOnGPU(mask_ptr, image_bytes, stream_);
+      FindBoundingBoxOnGPU(mask_ptr, width, height, &bbox, stream_);
+    }  // WriteHandle destructor records the producer-side CUDA event here.
+
+    // Sync still required: FindBoundingBoxOnGPU issues async D2H copies into the
+    // host-side `bbox` struct that is read immediately below.
     CHECK_CUDA_ERROR(cudaStreamSynchronize(stream_), "Failed to synchronize CUDA stream");
 
-    // Create a header for the mask
-    std_msgs::msg::Header header;
-    header.frame_id = tensor_list_msg->get_frame_id();
-    header.stamp.sec = static_cast<int32_t>(tensor_list_msg->get_timestamp_sec());
-    header.stamp.nanosec = tensor_list_msg->get_timestamp_nsec();
+    // Stamp the mask image with the upstream tensor's header.
+    mask_image.frame_id = tensor_list_msg->get_frame_id();
+    mask_image.timestamp_sec = tensor_list_msg->get_timestamp_sec();
+    mask_image.timestamp_nsec = tensor_list_msg->get_timestamp_nsec();
 
-    // Create and publish the image directly from tensor data
-    // Note: const_cast is safe here as the data won't be modified, just read
-    auto mask_image = nvidia::isaac_ros::nitros::NitrosImageBuilder()
-      .WithHeader(header)
-      .WithDimensions(height, width)
-      .WithEncoding(GetImageEncoding(tensor.bytes_per_element()))
-      .WithGpuData(gpu_buffer)
-      .Build();
+    std_msgs::msg::Header header;
+    header.frame_id = mask_image.frame_id;
+    header.stamp.sec = static_cast<int32_t>(mask_image.timestamp_sec);
+    header.stamp.nanosec = mask_image.timestamp_nsec;
+
     binary_mask_pub_->publish(std::move(mask_image));
     RCLCPP_DEBUG(
       get_logger(),

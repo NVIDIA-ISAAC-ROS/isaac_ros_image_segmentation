@@ -253,69 +253,72 @@ void UNetDecoderNode::TensorCallback(
 
   // Allocate raw mask output (mono8)
   auto raw_mask_msg = std::make_unique<nvidia::isaac_ros::nitros::NitrosImage>();
-  size_t raw_step = static_cast<size_t>(shape.width);
-  auto raw_write_handle = raw_mask_msg->from_pool(
-    pool_, shape.width, shape.height, raw_step,
-    sensor_msgs::image_encodings::MONO8, *cuda_stream_);
-  uint8_t * raw_mask_ptr = raw_write_handle.get_ptr();
+  auto colored_mask_msg = std::make_unique<nvidia::isaac_ros::nitros::NitrosImage>();
 
-  // Run postprocessing kernel
-  if (network_output_type_value_ == NetworkOutputType::kArgmax) {
-    auto data_type = tensor.data_type();
-    if (data_type == nitros::NitrosDataType::kInt32) {
-      CopyTensorData<int32_t>(
-        network_output_type_value_, data_format_value_, shape,
-        reinterpret_cast<const int32_t *>(tensor_gpu_ptr),
-        raw_mask_ptr, *cuda_stream_);
-    } else if (data_type == nitros::NitrosDataType::kInt64) {
-      CopyTensorData<int64_t>(
-        network_output_type_value_, data_format_value_, shape,
-        reinterpret_cast<const int64_t *>(tensor_gpu_ptr),
-        raw_mask_ptr, *cuda_stream_);
+  {
+    size_t raw_step = static_cast<size_t>(shape.width);
+    auto raw_write_handle = raw_mask_msg->from_pool(
+      pool_, shape.width, shape.height, raw_step,
+      sensor_msgs::image_encodings::MONO8, *cuda_stream_);
+    uint8_t * raw_mask_ptr = raw_write_handle.get_ptr();
+
+    // Run postprocessing kernel
+    if (network_output_type_value_ == NetworkOutputType::kArgmax) {
+      auto data_type = tensor.data_type();
+      if (data_type == nitros::NitrosDataType::kInt32) {
+        CopyTensorData<int32_t>(
+          network_output_type_value_, data_format_value_, shape,
+          reinterpret_cast<const int32_t *>(tensor_gpu_ptr),
+          raw_mask_ptr, *cuda_stream_);
+      } else if (data_type == nitros::NitrosDataType::kInt64) {
+        CopyTensorData<int64_t>(
+          network_output_type_value_, data_format_value_, shape,
+          reinterpret_cast<const int64_t *>(tensor_gpu_ptr),
+          raw_mask_ptr, *cuda_stream_);
+      } else {
+        RCLCPP_ERROR(get_logger(), "Unsupported tensor element type for argmax.");
+        return;
+      }
     } else {
-      RCLCPP_ERROR(get_logger(), "Unsupported tensor element type for argmax.");
+      cuda_postprocess(
+        network_output_type_value_, data_format_value_, shape,
+        reinterpret_cast<const float *>(tensor_gpu_ptr),
+        raw_mask_ptr, *cuda_stream_);
+    }
+
+    // Check for CUDA errors
+    cudaError_t kernel_err = cudaGetLastError();
+    if (kernel_err != cudaSuccess) {
+      RCLCPP_ERROR(
+        get_logger(), "Postprocessing kernel error: %s",
+        cudaGetErrorString(kernel_err));
       return;
     }
-  } else {
-    cuda_postprocess(
-      network_output_type_value_, data_format_value_, shape,
-      reinterpret_cast<const float *>(tensor_gpu_ptr),
-      raw_mask_ptr, *cuda_stream_);
+
+    // Allocate colored mask output (rgb8 or bgr8)
+    size_t color_step = static_cast<size_t>(shape.width) * 3;
+    auto color_write_handle = colored_mask_msg->from_pool(
+      pool_, shape.width, shape.height, color_step,
+      color_segmentation_mask_encoding_, *cuda_stream_);
+    uint8_t * colored_mask_ptr = color_write_handle.get_ptr();
+
+    // Run colorization kernel
+    ColorizeSegmentationMask(
+      colored_mask_ptr, shape.width, shape.height,
+      color_encoding_value_, raw_mask_ptr,
+      color_palette_device_, *cuda_stream_);
+
+    kernel_err = cudaGetLastError();
+    if (kernel_err != cudaSuccess) {
+      RCLCPP_ERROR(
+        get_logger(), "Colorization kernel error: %s",
+        cudaGetErrorString(kernel_err));
+      return;
+    }
+
+    // Sync stream before publishing
+    CHECK_CUDA_ERROR(cudaStreamSynchronize(*cuda_stream_), "Failed to sync stream");
   }
-
-  // Check for CUDA errors
-  cudaError_t kernel_err = cudaGetLastError();
-  if (kernel_err != cudaSuccess) {
-    RCLCPP_ERROR(
-      get_logger(), "Postprocessing kernel error: %s",
-      cudaGetErrorString(kernel_err));
-    return;
-  }
-
-  // Allocate colored mask output (rgb8 or bgr8)
-  auto colored_mask_msg = std::make_unique<nvidia::isaac_ros::nitros::NitrosImage>();
-  size_t color_step = static_cast<size_t>(shape.width) * 3;
-  auto color_write_handle = colored_mask_msg->from_pool(
-    pool_, shape.width, shape.height, color_step,
-    color_segmentation_mask_encoding_, *cuda_stream_);
-  uint8_t * colored_mask_ptr = color_write_handle.get_ptr();
-
-  // Run colorization kernel
-  ColorizeSegmentationMask(
-    colored_mask_ptr, shape.width, shape.height,
-    color_encoding_value_, raw_mask_ptr,
-    color_palette_device_, *cuda_stream_);
-
-  kernel_err = cudaGetLastError();
-  if (kernel_err != cudaSuccess) {
-    RCLCPP_ERROR(
-      get_logger(), "Colorization kernel error: %s",
-      cudaGetErrorString(kernel_err));
-    return;
-  }
-
-  // Sync stream before publishing
-  CHECK_CUDA_ERROR(cudaStreamSynchronize(*cuda_stream_), "Failed to sync stream");
 
   // Copy metadata from input
   raw_mask_msg->timestamp_sec = msg->get_timestamp_sec();

@@ -27,6 +27,10 @@ ament_auto_find_build_dependencies()
 
 # Decoder node
 ament_auto_add_library(unet_decoder_node SHARED src/unet_decoder_node.cpp)
+# isaac_ros_unet_kernels exports libraries through the legacy _LIBRARIES
+# variable, not an imported CMake target, so ament_target_dependencies will not
+# link them through package.xml dependencies alone.
+target_link_libraries(unet_decoder_node ${isaac_ros_unet_kernels_LIBRARIES})
 rclcpp_components_register_nodes(unet_decoder_node "nvidia::isaac_ros::unet::UNetDecoderNode")
 set(node_plugins "${node_plugins}nvidia::isaac_ros::unet::UNetDecoderNode;$<TARGET_FILE:unet_decoder_node>\n")
 set_target_properties(unet_decoder_node PROPERTIES

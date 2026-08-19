@@ -48,6 +48,39 @@ SegmentAnythingDecoderNode::SegmentAnythingDecoderNode(const rclcpp::NodeOptions
   max_batch_size_(declare_parameter<int16_t>("max_batch_size", 20)),
   tensor_name_(declare_parameter<std::string>("tensor_name", ""))
 {
+  // Validate parameters before sizing the pool: int16_t allows non-positive
+  // values, which would either overflow to SIZE_MAX-ish after static_cast
+  // (negatives) or be rejected later with a generic error (zero).
+  if (max_batch_size_ <= 0 || mask_height_ <= 0 || mask_width_ <= 0) {
+    RCLCPP_ERROR(
+      get_logger(),
+      "Invalid mask pool parameters: max_batch_size=%d, mask_height=%d, "
+      "mask_width=%d (all must be > 0)",
+      max_batch_size_, mask_height_, mask_width_);
+    throw std::invalid_argument(
+            "segment_anything_decoder: max_batch_size, mask_height, and "
+            "mask_width must all be > 0");
+  }
+
+  // Pre-allocate the output mask pool. Block size is the declared upper bound
+  // (max_batch_size * 1 channel * mask_height * mask_width bytes); 5 blocks
+  // covers the in-flight publisher backlog.
+  const size_t output_block_bytes =
+    static_cast<size_t>(max_batch_size_) *
+    static_cast<size_t>(mask_height_) *
+    static_cast<size_t>(mask_width_) * sizeof(uint8_t);
+  const cudaError_t pool_err = output_pool_.create(
+    output_block_bytes, 5, nitros::CUDAMemoryPool::MemoryType::Device);
+  if (pool_err != cudaSuccess) {
+    RCLCPP_ERROR(
+      get_logger(),
+      "Failed to create output CUDA memory pool (block=%zu bytes): %s",
+      output_block_bytes, cudaGetErrorString(pool_err));
+    throw std::runtime_error("output_pool_.create failed");
+  }
+
+  // Create the CUDA stream only after all fallible init has succeeded so the
+  // throws above don't leak the stream.
   cudaStreamCreate(&cuda_stream_);
 
   // Initialize publisher
@@ -110,42 +143,58 @@ void SegmentAnythingDecoderNode::InputCallback(
     return;
   }
 
-  // Total number of elements
-  size_t num_elements = batch_size * channels * height * width;
-
-  // Allocate output buffer (uint8) on GPU
-  void * output_gpu = nullptr;
-  cudaMalloc(&output_gpu, num_elements * sizeof(uint8_t));
-
-  // Run threshold kernel: float > 0 → 1, else → 0
-  const float * input_data = reinterpret_cast<const float *>(
-    tensor.get_read_handle(msg->get_stream()).get_ptr());
-  ThresholdFloatToUint8OnGPU(
-    input_data, static_cast<uint8_t *>(output_gpu), num_elements, cuda_stream_);
-
-  cudaError_t kernel_err = cudaGetLastError();
-  if (kernel_err != cudaSuccess) {
+  // Bounds-check the frame against the pre-allocated pool's block dimensions.
+  // from_pool would throw std::runtime_error on overflow and kill the callback;
+  // surface a clean error and drop the frame instead.
+  if (batch_size > max_batch_size_ ||
+    height > mask_height_ ||
+    width > mask_width_)
+  {
     RCLCPP_ERROR(
-      get_logger(), "CUDA kernel error: %s", cudaGetErrorString(kernel_err));
-    cudaFree(output_gpu);
+      get_logger(),
+      "Input tensor exceeds declared pool bounds: got [%d, %d, %d, %d], "
+      "max [%d, %d, %d, %d] (NCHW)",
+      batch_size, channels, height, width,
+      max_batch_size_, kExpectedChannelCount, mask_height_, mask_width_);
     return;
   }
 
-  cudaStreamSynchronize(cuda_stream_);
+  // Total number of elements
+  size_t num_elements = batch_size * channels * height * width;
 
-  // Build output tensor list
+  // Acquire an output mask buffer from the pre-allocated pool. from_pool
+  // wires up the pool's deleter so the block is recycled (not freed) when the
+  // published NitrosTensor is released.
+  nitros::NitrosTensor output_tensor;
+  {
+    auto output_write_handle = output_tensor.from_pool(
+      "" /*name*/, output_pool_,
+      nitros::NitrosTensorShape({batch_size, channels, height, width}),
+      nitros::NitrosDataType::kUnsigned8, cuda_stream_);
+
+    // Hold the ReadHandle in a named variable so it outlives the kernel: its
+    // destructor records the read-completion event, which must happen after
+    // the read, not before. cuda_stream_ is the consumer's own stream so it
+    // waits on the producer's event before the kernel runs.
+    auto input_read_handle = tensor.get_read_handle(cuda_stream_);
+    const float * input_data =
+      reinterpret_cast<const float *>(input_read_handle.get_ptr());
+    ThresholdFloatToUint8OnGPU(
+      input_data, output_write_handle.get_ptr(), num_elements, cuda_stream_);
+
+    cudaError_t kernel_err = cudaGetLastError();
+    if (kernel_err != cudaSuccess) {
+      RCLCPP_ERROR(
+        get_logger(), "CUDA kernel error: %s", cudaGetErrorString(kernel_err));
+      return;
+    }
+  }  // WriteHandle destructor records the producer-side CUDA event here.
+
   std_msgs::msg::Header header = msg->get_header();
 
   auto output_tensor_list = nitros::NitrosTensorListBuilder()
     .WithHeader(header)
-    .AddTensor(
-      "",
-      nitros::NitrosTensorBuilder()
-    .WithShape(nitros::NitrosTensorShape({batch_size, channels, height, width}))
-    .WithDataType(nitros::NitrosDataType::kUnsigned8)
-    .WithData(output_gpu)
-    .WithReleaseCallback([output_gpu]() {cudaFree(output_gpu);})
-    .Build())
+    .AddTensor("", std::move(output_tensor))
     .Build();
 
   output_pub_->publish(std::move(output_tensor_list));
