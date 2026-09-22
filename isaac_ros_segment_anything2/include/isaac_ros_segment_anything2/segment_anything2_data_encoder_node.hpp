@@ -18,16 +18,17 @@
 #ifndef ISAAC_ROS_SEGMENT_ANYTHING2__SEGMENT_ANYTHING2_DATA_ENCODER_NODE_HPP_
 #define ISAAC_ROS_SEGMENT_ANYTHING2__SEGMENT_ANYTHING2_DATA_ENCODER_NODE_HPP_
 
+#include <cuda_runtime.h>
+
 #include <memory>
 #include <string>
 #include <vector>
 #include "isaac_ros_common/qos.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/image.hpp"
-#include "isaac_ros_tensor_list_interfaces/msg/tensor_list.hpp"
+#include "isaac_ros_tensor_msgs/msg/tensor_list.hpp"
 #include "vision_msgs/msg/detection2_d_array.hpp"
 #include "isaac_ros_segment_anything2/segment_anything2_state_manager.hpp"
-#include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list.hpp"
 #include "isaac_ros_segment_anything2_interfaces/srv/add_objects.hpp"
 #include "isaac_ros_segment_anything2_interfaces/srv/remove_object.hpp"
 #include "isaac_ros_common/cuda_stream.hpp"
@@ -48,6 +49,8 @@ public:
   ~SegmentAnything2DataEncoderNode();
 
 private:
+  using TensorList = isaac_ros_tensor_msgs::msg::TensorList;
+
   // QoS settings
   rclcpp::QoS image_qos_;
   rclcpp::QoS memory_qos_;
@@ -55,9 +58,9 @@ private:
 
   // Callbacks for subscribers
   void ImageCallback(
-    const nvidia::isaac_ros::nitros::NitrosTensorList::ConstSharedPtr & msg);
+    const TensorList::ConstSharedPtr & msg);
   void MemoryCallback(
-    const nvidia::isaac_ros::nitros::NitrosTensorList::ConstSharedPtr & msg);
+    const TensorList::ConstSharedPtr & msg);
 
   // Service callback for adding objects
   void AddObjectsCallback(
@@ -73,11 +76,11 @@ private:
     std::shared_ptr<
       isaac_ros_segment_anything2_interfaces::srv::RemoveObject::Response> response);
 
-  // Publisher for output NitrosTensorList messages
-  rclcpp::Publisher<nvidia::isaac_ros::nitros::NitrosTensorList>::SharedPtr encoded_data_pub_;
+  // Publisher for output TensorList messages
+  rclcpp::Publisher<TensorList>::SharedPtr encoded_data_pub_;
   // Subscribers
-  rclcpp::Subscription<nvidia::isaac_ros::nitros::NitrosTensorList>::SharedPtr image_sub_;
-  rclcpp::Subscription<nvidia::isaac_ros::nitros::NitrosTensorList>::SharedPtr memory_sub_;
+  rclcpp::Subscription<TensorList>::SharedPtr image_sub_;
+  rclcpp::Subscription<TensorList>::SharedPtr memory_sub_;
 
   // Service for adding objects to the segmentation model
   rclcpp::Service<

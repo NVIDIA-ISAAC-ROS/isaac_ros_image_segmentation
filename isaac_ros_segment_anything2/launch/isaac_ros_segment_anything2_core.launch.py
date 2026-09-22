@@ -41,10 +41,8 @@ class IsaacROSSegmentAnything2LaunchFragment(IsaacROSLaunchFragment):
         sam2_max_num_objects = LaunchConfiguration('sam2_max_num_objects')
         sam2_input_tensor_names = LaunchConfiguration('sam2_input_tensor_names')
         sam2_input_binding_names = LaunchConfiguration('sam2_input_binding_names')
-        sam2_input_tensor_formats = LaunchConfiguration('sam2_input_tensor_formats')
         sam2_output_tensor_names = LaunchConfiguration('sam2_output_tensor_names')
         sam2_output_binding_names = LaunchConfiguration('sam2_output_binding_names')
-        sam2_output_tensor_formats = LaunchConfiguration('sam2_output_tensor_formats')
 
         orig_img_dims = [interface_specs['camera_resolution']['height'],
                          interface_specs['camera_resolution']['width']]
@@ -182,10 +180,8 @@ class IsaacROSSegmentAnything2LaunchFragment(IsaacROSLaunchFragment):
                     'max_batch_size': 1,
                     'input_tensor_names': sam2_input_tensor_names,
                     'input_binding_names': sam2_input_binding_names,
-                    'input_tensor_formats': sam2_input_tensor_formats,
                     'output_tensor_names': sam2_output_tensor_names,
                     'output_binding_names': sam2_output_binding_names,
-                    'output_tensor_formats': sam2_output_tensor_formats,
                 }],
                 remappings=[('tensor_pub', '/segment_anything2/encoded_data'),
                             ('tensor_sub', '/segment_anything2/tensor_sub')]
@@ -242,10 +238,6 @@ class IsaacROSSegmentAnything2LaunchFragment(IsaacROSLaunchFragment):
                 default_value='["image","bbox_coords","point_coords","point_labels", \
             "mask_memory","obj_ptr_memory","original_size","permutation"]',
                 description='A list of input tensor binding names (specified by model)'),
-            'sam2_input_tensor_formats': DeclareLaunchArgument(
-                'sam2_input_tensor_formats',
-                default_value='["nitros_tensor_list_nchw_rgb_f32"]',
-                description='The nitros format of the input tensors'),
             'sam2_output_tensor_names': DeclareLaunchArgument(
                 'sam2_output_tensor_names',
                 default_value='["high_res_masks","object_score_logits", \
@@ -256,10 +248,6 @@ class IsaacROSSegmentAnything2LaunchFragment(IsaacROSLaunchFragment):
                 default_value='["high_res_masks","object_score_logits", \
             "maskmem_features","maskmem_pos_enc","obj_ptr_features"]',
                 description='A list of output tensor binding names (specified by model)'),
-            'sam2_output_tensor_formats': DeclareLaunchArgument(
-                'sam2_output_tensor_formats',
-                default_value='["nitros_tensor_list_nchw_rgb_f32"]',
-                description='The nitros format of the output tensors'),
             'color_segmentation_mask_encoding': DeclareLaunchArgument(
                 'color_segmentation_mask_encoding',
                 default_value='rgb8',

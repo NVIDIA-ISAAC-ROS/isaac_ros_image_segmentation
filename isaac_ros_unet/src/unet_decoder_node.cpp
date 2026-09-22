@@ -22,9 +22,11 @@
 #include <unordered_map>
 #include <vector>
 
+#include "cuda_buffer/cuda_buffer_api.hpp"
+#include "isaac_ros_common/qos.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/image_encodings.hpp"
-#include "isaac_ros_common/qos.hpp"
+#include "tensor_msgs/msg/experimental_tensor.hpp"
 
 namespace nvidia
 {
@@ -34,6 +36,17 @@ namespace unet
 {
 namespace
 {
+
+// DLPack DLDataTypeCode values, per tensor_msgs/ExperimentalTensor.msg. The element
+// type is the triple {dtype_code, dtype_bits, dtype_lanes} rather than a single
+// ordinal, so int32 is {kInt, 32, 1} and float32 is {kFloat, 32, 1}.
+constexpr uint8_t kDLDataTypeCodeInt = 0;
+constexpr uint8_t kDLDataTypeCodeFloat = 2;
+
+// DLPack packs `lanes` elements into each vector element; 1 is a plain scalar.
+// The postprocessing kernels index the buffer as scalars, so anything else is
+// a different memory layout and is rejected rather than misread.
+constexpr uint16_t kDLDataTypeLanesScalar = 1;
 
 bool IsSupportedNetworkOutputType(const std::string & network_output_type)
 {
@@ -65,12 +78,28 @@ DataFormat ParseDataFormat(const std::string & name)
   throw std::invalid_argument("Unsupported data format: " + name);
 }
 
+// A DLPack tensor may carry explicit strides; empty means "contiguous, infer
+// row-major from shape". The postprocessing kernels index the tensor as a dense
+// row-major buffer, so any other layout must be rejected rather than silently
+// misread.
+bool IsContiguousRowMajor(const tensor_msgs::msg::ExperimentalTensor & tensor)
+{
+  if (tensor.strides.empty()) {return true;}
+  if (tensor.strides.size() != tensor.shape.size()) {return false;}
+  int64_t expected = 1;
+  for (size_t i = tensor.shape.size(); i > 0; --i) {
+    if (tensor.strides[i - 1] != expected) {return false;}
+    expected *= tensor.shape[i - 1];
+  }
+  return true;
+}
+
 Shape ExtractShape(
-  const nvidia::isaac_ros::nitros::NitrosTensor & tensor,
+  const tensor_msgs::msg::ExperimentalTensor & tensor,
   DataFormat data_format)
 {
   Shape shape{};
-  auto dims = tensor.shape().dims();
+  const auto & dims = tensor.shape;
   const char * format_name = nullptr;
   size_t required_dims = 0;
   switch (data_format) {
@@ -93,25 +122,25 @@ Shape ExtractShape(
   }
   if (dims.size() < required_dims) {
     throw std::invalid_argument(
-            "NitrosTensor has insufficient dimensions for DataFormat::" +
+            "Tensor has insufficient dimensions for DataFormat::" +
             std::string(format_name) + ": expected at least " +
             std::to_string(required_dims) + ", got " + std::to_string(dims.size()));
   }
   switch (data_format) {
     case DataFormat::kHWC:
-      shape.height = dims[0];
-      shape.width = dims[1];
-      shape.channels = dims[2];
+      shape.height = static_cast<int32_t>(dims[0]);
+      shape.width = static_cast<int32_t>(dims[1]);
+      shape.channels = static_cast<int32_t>(dims[2]);
       break;
     case DataFormat::kNCHW:
-      shape.channels = dims[1];
-      shape.height = dims[2];
-      shape.width = dims[3];
+      shape.channels = static_cast<int32_t>(dims[1]);
+      shape.height = static_cast<int32_t>(dims[2]);
+      shape.width = static_cast<int32_t>(dims[3]);
       break;
     case DataFormat::kNHWC:
-      shape.height = dims[1];
-      shape.width = dims[2];
-      shape.channels = dims[3];
+      shape.height = static_cast<int32_t>(dims[1]);
+      shape.width = static_cast<int32_t>(dims[2]);
+      shape.channels = static_cast<int32_t>(dims[3]);
       break;
     default:
       throw std::invalid_argument(
@@ -130,9 +159,7 @@ UNetDecoderNode::UNetDecoderNode(const rclcpp::NodeOptions options)
   color_palette_(
     declare_parameter<std::vector<int64_t>>("color_palette", std::vector<int64_t>({}))),
   network_output_type_(declare_parameter<std::string>("network_output_type", "softmax")),
-  data_format_(declare_parameter<std::string>("data_format", "NHWC")),
-  mask_width_(declare_parameter<int16_t>("mask_width", 960)),
-  mask_height_(declare_parameter<int16_t>("mask_height", 544))
+  data_format_(declare_parameter<std::string>("data_format", "NHWC"))
 {
   // Validate color_segmentation_mask_encoding
   if (color_segmentation_mask_encoding_.empty()) {
@@ -186,16 +213,6 @@ UNetDecoderNode::UNetDecoderNode(const rclcpp::NodeOptions options)
   // Create CUDA stream
   cuda_stream_ = ::nvidia::isaac_ros::common::createCudaStream("unet_decoder");
 
-  // Create CUDA memory pool
-  // Raw mask: mono8 (1 byte/pixel), Colored mask: rgb8/bgr8 (3 bytes/pixel)
-  // Pool block size should accommodate the larger of the two
-  size_t color_block_size = static_cast<size_t>(mask_width_) * mask_height_ * 3;
-  cudaError_t err = pool_.create(
-    color_block_size,
-    40,  // num_blocks
-    nitros::CUDAMemoryPool::MemoryType::Device);
-  CHECK_CUDA_ERROR(err, "Failed to create CUDA memory pool");
-
   // Copy color palette to device
   int64_t * palette_data{nullptr};
   CHECK_CUDA_ERROR(
@@ -216,28 +233,45 @@ UNetDecoderNode::UNetDecoderNode(const rclcpp::NodeOptions options)
 
   rclcpp::SubscriptionOptions sub_options;
   sub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Enable;
-  tensor_sub_ = create_subscription<nvidia::isaac_ros::nitros::NitrosTensorList>(
+  // Accept GPU-backed (cuda) buffers while staying compatible with CPU-backed
+  // publishers; from_input_buffer promotes CPU buffers as needed.
+  sub_options.acceptable_buffer_backends = "any";
+  tensor_sub_ = create_subscription<isaac_ros_tensor_msgs::msg::TensorList>(
     "tensor_sub", input_qos,
     std::bind(&UNetDecoderNode::TensorCallback, this, std::placeholders::_1),
     sub_options);
 
   rclcpp::PublisherOptions pub_options;
   pub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Enable;
-  raw_mask_pub_ = create_publisher<nvidia::isaac_ros::nitros::NitrosImage>(
+  raw_mask_pub_ = create_publisher<sensor_msgs::msg::Image>(
     "unet/raw_segmentation_mask", output_qos, pub_options);
-  colored_mask_pub_ = create_publisher<nvidia::isaac_ros::nitros::NitrosImage>(
+  colored_mask_pub_ = create_publisher<sensor_msgs::msg::Image>(
     "unet/colored_segmentation_mask", output_qos, pub_options);
 }
 
 void UNetDecoderNode::TensorCallback(
-  const nvidia::isaac_ros::nitros::NitrosTensorList::ConstSharedPtr & msg)
+  const isaac_ros_tensor_msgs::msg::TensorList::ConstSharedPtr & msg)
 {
-  if (msg->num_tensors() == 0) {
+  if (msg->tensors.empty()) {
     RCLCPP_ERROR(get_logger(), "Received empty tensor list!");
     return;
   }
 
-  const auto & tensor = msg->get_tensor(0);
+  const auto & tensor = msg->tensors[0];
+  if (tensor.dtype_lanes != kDLDataTypeLanesScalar) {
+    RCLCPP_ERROR(
+      get_logger(),
+      "Received vectorized tensor (dtype_lanes = %u), only scalar tensors are supported.",
+      static_cast<unsigned int>(tensor.dtype_lanes));
+    return;
+  }
+  if (!IsContiguousRowMajor(tensor)) {
+    RCLCPP_ERROR(
+      get_logger(),
+      "Received tensor with non-contiguous strides, only row-major layout is supported.");
+    return;
+  }
+
   Shape shape = ExtractShape(tensor, data_format_value_);
 
   if (shape.channels > kMaxChannelCount) {
@@ -247,39 +281,80 @@ void UNetDecoderNode::TensorCallback(
     return;
   }
 
-  // Get input tensor GPU data
-  auto tensor_read_handle = tensor.get_read_handle(*cuda_stream_);
-  const uint8_t * tensor_gpu_ptr = tensor_read_handle.get_ptr();
+  // Allocate raw mask output (mono8) with a CUDA-backed buffer
+  auto raw_mask_msg = std::make_unique<sensor_msgs::msg::Image>();
+  raw_mask_msg->header = msg->header;
+  raw_mask_msg->height = static_cast<uint32_t>(shape.height);
+  raw_mask_msg->width = static_cast<uint32_t>(shape.width);
+  raw_mask_msg->encoding = sensor_msgs::image_encodings::MONO8;
+  raw_mask_msg->is_bigendian = 0;
+  size_t raw_step = static_cast<size_t>(shape.width);
+  raw_mask_msg->step = static_cast<uint32_t>(raw_step);
+  raw_mask_msg->data = cuda_buffer_backend::allocate_buffer(
+    raw_step * static_cast<size_t>(shape.height));
 
-  // Allocate raw mask output (mono8)
-  auto raw_mask_msg = std::make_unique<nvidia::isaac_ros::nitros::NitrosImage>();
-  auto colored_mask_msg = std::make_unique<nvidia::isaac_ros::nitros::NitrosImage>();
+  // Allocate colored mask output (rgb8 or bgr8) with a CUDA-backed buffer
+  auto colored_mask_msg = std::make_unique<sensor_msgs::msg::Image>();
+  colored_mask_msg->header = msg->header;
+  colored_mask_msg->height = static_cast<uint32_t>(shape.height);
+  colored_mask_msg->width = static_cast<uint32_t>(shape.width);
+  colored_mask_msg->encoding = color_segmentation_mask_encoding_;
+  colored_mask_msg->is_bigendian = 0;
+  size_t color_step = static_cast<size_t>(shape.width) * 3;
+  colored_mask_msg->step = static_cast<uint32_t>(color_step);
+  colored_mask_msg->data = cuda_buffer_backend::allocate_buffer(
+    color_step * static_cast<size_t>(shape.height));
 
   {
-    size_t raw_step = static_cast<size_t>(shape.width);
-    auto raw_write_handle = raw_mask_msg->from_pool(
-      pool_, shape.width, shape.height, raw_step,
-      sensor_msgs::image_encodings::MONO8, *cuda_stream_);
+    // The Read/WriteHandles below are the RAII owners of this scope's GPU access:
+    // each gates on the producer's write event (when the buffer carries one),
+    // keeps the CudaBuffer storage alive, and settles its bookkeeping on
+    // destruction. They must therefore outlive all GPU work below and be
+    // destroyed before the messages are published.
+    // The uint8_t pointers taken from them are non-owning device views into
+    // buffer-owned memory -- they must not be wrapped in an owning smart pointer,
+    // which would free storage this scope does not own.
+    auto tensor_read_handle = cuda_buffer_backend::from_input_buffer(tensor.data, *cuda_stream_);
+    // byte_offset is nonzero when the message carries a view into a larger
+    // allocation; the tensor's first element lives at data + byte_offset.
+    const uint8_t * tensor_gpu_ptr = tensor_read_handle.get_ptr() + tensor.byte_offset;
+
+    auto raw_write_handle = cuda_buffer_backend::from_output_buffer(
+      raw_mask_msg->data, *cuda_stream_);
     uint8_t * raw_mask_ptr = raw_write_handle.get_ptr();
 
     // Run postprocessing kernel
     if (network_output_type_value_ == NetworkOutputType::kArgmax) {
-      auto data_type = tensor.data_type();
-      if (data_type == nitros::NitrosDataType::kInt32) {
+      if (tensor.dtype_code == kDLDataTypeCodeInt && tensor.dtype_bits == 32) {
         CopyTensorData<int32_t>(
           network_output_type_value_, data_format_value_, shape,
           reinterpret_cast<const int32_t *>(tensor_gpu_ptr),
           raw_mask_ptr, *cuda_stream_);
-      } else if (data_type == nitros::NitrosDataType::kInt64) {
+      } else if (tensor.dtype_code == kDLDataTypeCodeInt && tensor.dtype_bits == 64) {
         CopyTensorData<int64_t>(
           network_output_type_value_, data_format_value_, shape,
           reinterpret_cast<const int64_t *>(tensor_gpu_ptr),
           raw_mask_ptr, *cuda_stream_);
       } else {
-        RCLCPP_ERROR(get_logger(), "Unsupported tensor element type for argmax.");
+        RCLCPP_ERROR(
+          get_logger(),
+          "Unsupported tensor element type for argmax: expected int32 or int64, got "
+          "{dtype_code = %u, dtype_bits = %u}.",
+          static_cast<unsigned int>(tensor.dtype_code),
+          static_cast<unsigned int>(tensor.dtype_bits));
         return;
       }
     } else {
+      if (tensor.dtype_code != kDLDataTypeCodeFloat || tensor.dtype_bits != 32) {
+        RCLCPP_ERROR(
+          get_logger(),
+          "Unsupported tensor element type for %s: expected float32, got "
+          "{dtype_code = %u, dtype_bits = %u}.",
+          network_output_type_.c_str(),
+          static_cast<unsigned int>(tensor.dtype_code),
+          static_cast<unsigned int>(tensor.dtype_bits));
+        return;
+      }
       cuda_postprocess(
         network_output_type_value_, data_format_value_, shape,
         reinterpret_cast<const float *>(tensor_gpu_ptr),
@@ -295,11 +370,9 @@ void UNetDecoderNode::TensorCallback(
       return;
     }
 
-    // Allocate colored mask output (rgb8 or bgr8)
-    size_t color_step = static_cast<size_t>(shape.width) * 3;
-    auto color_write_handle = colored_mask_msg->from_pool(
-      pool_, shape.width, shape.height, color_step,
-      color_segmentation_mask_encoding_, *cuda_stream_);
+    // Non-owning device view, owned by color_write_handle (see above).
+    auto color_write_handle = cuda_buffer_backend::from_output_buffer(
+      colored_mask_msg->data, *cuda_stream_);
     uint8_t * colored_mask_ptr = color_write_handle.get_ptr();
 
     // Run colorization kernel
@@ -316,18 +389,14 @@ void UNetDecoderNode::TensorCallback(
       return;
     }
 
-    // Sync stream before publishing
+    // Sync before publishing. The handles do NOT order this for us: a WriteHandle
+    // records its completion event only if the buffer already owns one, and
+    // CudaBuffer::write_event_ is set exclusively when the backend imports an IPC
+    // handle on the *subscriber* side. Buffers minted by allocate_buffer() have no
+    // event, so consumers get a zeroed ipc_event_handle and never wait on this
+    // stream -- the masks must be complete before they go out.
     CHECK_CUDA_ERROR(cudaStreamSynchronize(*cuda_stream_), "Failed to sync stream");
-  }
-
-  // Copy metadata from input
-  raw_mask_msg->timestamp_sec = msg->get_timestamp_sec();
-  raw_mask_msg->timestamp_nsec = msg->get_timestamp_nsec();
-  raw_mask_msg->frame_id = msg->get_frame_id();
-
-  colored_mask_msg->timestamp_sec = msg->get_timestamp_sec();
-  colored_mask_msg->timestamp_nsec = msg->get_timestamp_nsec();
-  colored_mask_msg->frame_id = msg->get_frame_id();
+  }  // handles destroyed here → read events recorded, write access finalized
 
   // Publish both outputs
   raw_mask_pub_->publish(std::move(raw_mask_msg));

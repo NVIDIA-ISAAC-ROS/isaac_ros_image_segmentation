@@ -17,11 +17,10 @@
 
 #include "isaac_ros_segment_anything2/segment_anything2_data_encoder_node.hpp"
 
-#include "isaac_ros_nitros/types/nitros_type_base.hpp"
+#include "cuda_buffer/cuda_buffer_api.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_components/register_node_macro.hpp"
-#include "isaac_ros_nitros_tensor_list_type/nitros_tensor.hpp"
-#include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list_builder.hpp"
+#include "tensor_msgs/msg/experimental_tensor.hpp"
 #include "vision_msgs/msg/bounding_box2_d.hpp"
 #include "vision_msgs/msg/point2_d.hpp"
 
@@ -35,41 +34,102 @@ namespace
 {
 constexpr char kDefaultQoS[] = "DEFAULT";
 
-nvidia::isaac_ros::nitros::NitrosTensorShape getImageShape()
+using Tensor = tensor_msgs::msg::ExperimentalTensor;
+using TensorList = isaac_ros_tensor_msgs::msg::TensorList;
+
+// DLPack dtypes used by this node: {dtype_code, dtype_bits} with dtype_lanes = 1
+// (see ExperimentalTensor.msg).
+struct DLDtype
 {
-  return nvidia::isaac_ros::nitros::NitrosTensorShape{1, 3, 1024, 1024};
+  uint8_t code;
+  uint8_t bits;
+};
+constexpr DLDtype kDtypeInt32 = {0, 32};
+constexpr DLDtype kDtypeInt64 = {0, 64};
+constexpr DLDtype kDtypeFloat32 = {2, 32};
+
+// Tensor shapes as row-major dimension vectors.
+std::vector<int64_t> getImageShape()
+{
+  return {1, 3, 1024, 1024};
 }
-nvidia::isaac_ros::nitros::NitrosTensorShape getMaskMemoryTensorShape(int32_t batch_size)
+std::vector<int64_t> getMaskMemoryTensorShape(int32_t batch_size)
 {
-  return nvidia::isaac_ros::nitros::NitrosTensorShape{batch_size, 4, 64, 64, 64};
+  return {batch_size, 4, 64, 64, 64};
 }
-nvidia::isaac_ros::nitros::NitrosTensorShape getObjPtrMemoryTensorShape(int32_t batch_size)
+std::vector<int64_t> getObjPtrMemoryTensorShape(int32_t batch_size)
 {
-  return nvidia::isaac_ros::nitros::NitrosTensorShape{batch_size, 2, 256};
+  return {batch_size, 2, 256};
 }
-nvidia::isaac_ros::nitros::NitrosTensorShape getBboxCoordsTensorShape(int32_t num_bbox_objects)
+std::vector<int64_t> getBboxCoordsTensorShape(int32_t num_bbox_objects)
 {
-  return nvidia::isaac_ros::nitros::NitrosTensorShape{num_bbox_objects, 4};
+  return {num_bbox_objects, 4};
 }
-nvidia::isaac_ros::nitros::NitrosTensorShape getPointCoordsTensorShape(
-  int32_t num_point_objects)
+std::vector<int64_t> getPointCoordsTensorShape(int32_t num_point_objects)
 {
-  return nvidia::isaac_ros::nitros::NitrosTensorShape{
-    num_point_objects, SAM2StateManager::kMaxPointsPerObject, 2};
+  return {num_point_objects,
+    static_cast<int64_t>(SAM2StateManager::kMaxPointsPerObject), 2};
 }
-nvidia::isaac_ros::nitros::NitrosTensorShape getPointLabelsTensorShape(
-  int32_t num_point_objects)
+std::vector<int64_t> getPointLabelsTensorShape(int32_t num_point_objects)
 {
-  return nvidia::isaac_ros::nitros::NitrosTensorShape{
-    num_point_objects, SAM2StateManager::kMaxPointsPerObject};
+  return {num_point_objects,
+    static_cast<int64_t>(SAM2StateManager::kMaxPointsPerObject)};
 }
-nvidia::isaac_ros::nitros::NitrosTensorShape getPermutationTensorShape(int32_t batch_size)
+std::vector<int64_t> getPermutationTensorShape(int32_t batch_size)
 {
-  return nvidia::isaac_ros::nitros::NitrosTensorShape{batch_size};
+  return {batch_size};
 }
-nvidia::isaac_ros::nitros::NitrosTensorShape getOriginalSizeTensorShape()
+std::vector<int64_t> getOriginalSizeTensorShape()
 {
-  return nvidia::isaac_ros::nitros::NitrosTensorShape{2};
+  return {2};
+}
+
+size_t ElementCount(const std::vector<int64_t> & dims)
+{
+  size_t n = 1;
+  for (auto d : dims) {
+    n *= static_cast<size_t>(d);
+  }
+  return n;
+}
+
+// Look up a tensor by name within a TensorList.
+// Tensor names live in the TensorList-level names array, parallel to tensors.
+const Tensor * findTensor(const TensorList & msg, const std::string & name)
+{
+  for (size_t i = 0; i < msg.names.size() && i < msg.tensors.size(); ++i) {
+    if (msg.names[i] == name) {
+      return &msg.tensors[i];
+    }
+  }
+  return nullptr;
+}
+
+// Build a Tensor by allocating a cuda_buffer-backed output buffer and D2D-copying
+// from a device source pointer. The WriteHandle leaving scope records a CUDA event
+// on the stream so consumers synchronize via from_input_buffer.
+Tensor makeDeviceTensor(
+  const void * src_dev,
+  const std::vector<int64_t> & dims, DLDtype dtype, size_t elem_size,
+  cudaStream_t stream)
+{
+  Tensor t;
+  t.dtype_code = dtype.code;
+  t.dtype_bits = dtype.bits;
+  t.dtype_lanes = 1;
+  t.shape = dims;
+  // strides left empty: contiguous row-major per DLPack convention
+  t.byte_offset = 0;
+  const size_t bytes = ElementCount(dims) * elem_size;
+  t.data = cuda_buffer_backend::allocate_buffer(bytes);
+  // A zero-element tensor (e.g. no bbox or no point objects this frame) is still
+  // published with its shape; skip the handle/copy since from_output_buffer
+  // rejects empty buffers.
+  if (bytes > 0) {
+    auto wh = cuda_buffer_backend::from_output_buffer(t.data, stream);
+    cuda_buffer_backend::to_buffer(src_dev, bytes, wh, stream, cudaMemcpyDeviceToDevice);
+  }
+  return t;
 }
 
 BBox getBboxCoords(const vision_msgs::msg::BoundingBox2D & bbox)
@@ -98,20 +158,21 @@ SegmentAnything2DataEncoderNode::SegmentAnything2DataEncoderNode(const rclcpp::N
   }
   rclcpp::SubscriptionOptions sub_options;
   sub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Enable;
+  sub_options.acceptable_buffer_backends = "any";
   rclcpp::PublisherOptions pub_options;
   pub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Enable;
 
   // Initialize publisher for encoded data
-  encoded_data_pub_ = create_publisher<nvidia::isaac_ros::nitros::NitrosTensorList>(
+  encoded_data_pub_ = create_publisher<TensorList>(
     "encoded_data", encoded_data_qos_, pub_options);
 
   // Initialize subscribers
-  image_sub_ = create_subscription<nvidia::isaac_ros::nitros::NitrosTensorList>(
+  image_sub_ = create_subscription<TensorList>(
     "image", image_qos_,
     std::bind(&SegmentAnything2DataEncoderNode::ImageCallback, this, std::placeholders::_1),
     sub_options);
 
-  memory_sub_ = create_subscription<nvidia::isaac_ros::nitros::NitrosTensorList>(
+  memory_sub_ = create_subscription<TensorList>(
     "memory", memory_qos_,
     std::bind(&SegmentAnything2DataEncoderNode::MemoryCallback, this, std::placeholders::_1),
     sub_options);
@@ -157,7 +218,7 @@ SegmentAnything2DataEncoderNode::~SegmentAnything2DataEncoderNode()
 }
 
 void SegmentAnything2DataEncoderNode::ImageCallback(
-  const nvidia::isaac_ros::nitros::NitrosTensorList::ConstSharedPtr & msg)
+  const TensorList::ConstSharedPtr & msg)
 {
   RCLCPP_DEBUG(get_logger(), "Received image tensor");
   int num_objects = sam2_state_manager_->getNumberOfObjects();
@@ -165,55 +226,40 @@ void SegmentAnything2DataEncoderNode::ImageCallback(
     RCLCPP_DEBUG(get_logger(), "No objects found in the state manager!");
     return;
   }
-  auto input_tensor_ptr = msg->get_tensor_by_name("input_tensor");
-  if (!input_tensor_ptr) {
+  const Tensor * input_tensor = findTensor(*msg, "input_tensor");
+  if (!input_tensor) {
     throw std::runtime_error("Tensor with name 'input_tensor' not found");
   }
-  const auto & input_tensor = *input_tensor_ptr;
 
-  int64_t timestamp = static_cast<int64_t>(msg->get_timestamp_sec()) * 1000000000LL +
-    static_cast<int64_t>(msg->get_timestamp_nsec());
+  int64_t timestamp = static_cast<int64_t>(msg->header.stamp.sec) * 1000000000LL +
+    static_cast<int64_t>(msg->header.stamp.nanosec);
 
-  // Use from_external's default sync cudaFree deleter: capturing stream_ in
-  // an async deleter would dangle if a published tensor outlives the node
-  // (which destroys stream_ in its destructor). WriteHandle leaving scope
-  // still records a CUDA event so consumers sync via get_read_handle.
-  void * image_buffer = nullptr;
-  CHECK_CUDA_ERROR(
-    cudaMallocAsync(&image_buffer, input_tensor.tensor_size(), stream_),
-    "Failed to allocate image buffer");
-  nvidia::isaac_ros::nitros::NitrosTensor image_tensor;
+  // Image tensor: allocate a cuda_buffer-backed output and D2D-copy from the
+  // subscribed input tensor's buffer. The read/write handles leaving scope each
+  // record a CUDA event so consumers synchronize via from_input_buffer.
+  const size_t image_bytes = input_tensor->data.size();
+  const auto image_dims = getImageShape();
+  Tensor image_tensor;
+  image_tensor.dtype_code = kDtypeFloat32.code;
+  image_tensor.dtype_bits = kDtypeFloat32.bits;
+  image_tensor.dtype_lanes = 1;
+  image_tensor.shape = image_dims;
+  // strides left empty: contiguous row-major per DLPack convention. The whole
+  // underlying buffer is copied, so the input's view offset carries over.
+  image_tensor.byte_offset = input_tensor->byte_offset;
+  image_tensor.data = cuda_buffer_backend::allocate_buffer(image_bytes);
   {
-    auto image_write_handle = image_tensor.from_external(
-      "image", image_buffer, input_tensor.tensor_size(),
-      getImageShape(), nvidia::isaac_ros::nitros::NitrosDataType::kFloat32,
-      stream_);
-    auto input_read_handle = input_tensor.get_read_handle(stream_);
-    CHECK_CUDA_ERROR(
-      cudaMemcpyAsync(
-        image_write_handle.get_ptr(), input_read_handle.get_ptr(),
-        input_tensor.tensor_size(), cudaMemcpyDeviceToDevice, stream_),
-      "Failed to copy image buffer");
+    auto image_write_handle = cuda_buffer_backend::from_output_buffer(image_tensor.data, stream_);
+    auto input_read_handle = cuda_buffer_backend::from_input_buffer(input_tensor->data, stream_);
+    cuda_buffer_backend::to_buffer(
+      input_read_handle.get_ptr(), image_bytes, image_write_handle, stream_,
+      cudaMemcpyDeviceToDevice);
   }
 
-  // Node-owned per-frame copy of the cached original-size buffer.
-  int32_t * original_size_buffer = nullptr;
-  CHECK_CUDA_ERROR(
-    cudaMallocAsync(&original_size_buffer, 2 * sizeof(int32_t), stream_),
-    "Failed to allocate original size buffer");
-  nvidia::isaac_ros::nitros::NitrosTensor original_size_tensor;
-  {
-    auto original_size_write_handle = original_size_tensor.from_external(
-      "original_size", original_size_buffer, 2 * sizeof(int32_t),
-      getOriginalSizeTensorShape(),
-      nvidia::isaac_ros::nitros::NitrosDataType::kInt32,
-      stream_);
-    CHECK_CUDA_ERROR(
-      cudaMemcpyAsync(
-        original_size_write_handle.get_ptr(), original_size_buffer_,
-        2 * sizeof(int32_t), cudaMemcpyDeviceToDevice, stream_),
-      "Failed to copy original size buffer");
-  }
+  // Original-size tensor: D2D-copy from the node's cached device buffer.
+  Tensor original_size_tensor = makeDeviceTensor(
+    original_size_buffer_, getOriginalSizeTensorShape(),
+    kDtypeInt32, sizeof(int32_t), stream_);
 
   SAM2BufferData buffer_data = sam2_state_manager_->getBuffers(stream_, timestamp);
 
@@ -223,96 +269,86 @@ void SegmentAnything2DataEncoderNode::ImageCallback(
     return;
   }
 
-  // getBuffers() allocates fresh buffers for this frame. Transfer their ownership
-  // to the NitrosTensor so they are released after downstream consumers finish.
-  // The discarded WriteHandle still records an event capturing getBuffers()'s
-  // queued writes.
-  auto shape_element_count =
-    [](const nvidia::isaac_ros::nitros::NitrosTensorShape & shape) {
-      size_t n = 1;
-      for (auto d : shape.dims()) {
-        n *= static_cast<size_t>(d);
-      }
-      return n;
-    };
-  auto wrap_state_buffer = [&](const std::string & name, void * ptr, size_t bytes,
-    const nvidia::isaac_ros::nitros::NitrosTensorShape & shape,
-    nvidia::isaac_ros::nitros::NitrosDataType dtype) {
-      nvidia::isaac_ros::nitros::NitrosTensor t;
-      (void)t.from_external(name, ptr, bytes, shape, dtype, stream_);
-      return t;
-    };
+  // getBuffers() allocates fresh buffers for this frame. Copy them into
+  // cuda_buffer-backed tensors, then release the source buffers on the same stream.
+  Tensor mask_memory_tensor = makeDeviceTensor(
+    buffer_data.mask_mem, getMaskMemoryTensorShape(buffer_data.batch_size),
+    kDtypeFloat32, sizeof(float), stream_);
+  Tensor obj_ptr_memory_tensor = makeDeviceTensor(
+    buffer_data.obj_ptr_mem, getObjPtrMemoryTensorShape(buffer_data.batch_size),
+    kDtypeFloat32, sizeof(float), stream_);
+  Tensor bbox_coords_tensor = makeDeviceTensor(
+    buffer_data.bbox_coords, getBboxCoordsTensorShape(buffer_data.num_bboxes),
+    kDtypeFloat32, sizeof(float), stream_);
+  Tensor point_coords_tensor = makeDeviceTensor(
+    buffer_data.point_coords, getPointCoordsTensorShape(buffer_data.num_points),
+    kDtypeFloat32, sizeof(float), stream_);
+  Tensor point_labels_tensor = makeDeviceTensor(
+    buffer_data.point_labels, getPointLabelsTensorShape(buffer_data.num_points),
+    kDtypeInt32, sizeof(int32_t), stream_);
+  Tensor permutation_tensor = makeDeviceTensor(
+    buffer_data.permutation, getPermutationTensorShape(buffer_data.batch_size),
+    kDtypeInt64, sizeof(int64_t), stream_);
 
-  const auto mask_mem_shape = getMaskMemoryTensorShape(buffer_data.batch_size);
-  const auto obj_ptr_shape = getObjPtrMemoryTensorShape(buffer_data.batch_size);
-  const auto bbox_shape = getBboxCoordsTensorShape(buffer_data.num_bboxes);
-  const auto point_coords_shape = getPointCoordsTensorShape(buffer_data.num_points);
-  const auto point_labels_shape = getPointLabelsTensorShape(buffer_data.num_points);
-  const auto permutation_shape = getPermutationTensorShape(buffer_data.batch_size);
+  CHECK_CUDA_ERROR(cudaFreeAsync(buffer_data.mask_mem, stream_), "Failed to free mask memory");
+  CHECK_CUDA_ERROR(
+    cudaFreeAsync(buffer_data.obj_ptr_mem, stream_), "Failed to free object pointer");
+  CHECK_CUDA_ERROR(
+    cudaFreeAsync(buffer_data.bbox_coords, stream_), "Failed to free bounding boxes");
+  CHECK_CUDA_ERROR(
+    cudaFreeAsync(buffer_data.point_coords, stream_), "Failed to free point coords");
+  CHECK_CUDA_ERROR(
+    cudaFreeAsync(buffer_data.point_labels, stream_), "Failed to free point labels");
+  CHECK_CUDA_ERROR(cudaFreeAsync(buffer_data.permutation, stream_), "Failed to free permutation");
 
-  auto mask_memory_tensor = wrap_state_buffer(
-    "mask_memory", buffer_data.mask_mem,
-    shape_element_count(mask_mem_shape) * sizeof(float), mask_mem_shape,
-    nvidia::isaac_ros::nitros::NitrosDataType::kFloat32);
-  auto obj_ptr_memory_tensor = wrap_state_buffer(
-    "obj_ptr_memory", buffer_data.obj_ptr_mem,
-    shape_element_count(obj_ptr_shape) * sizeof(float), obj_ptr_shape,
-    nvidia::isaac_ros::nitros::NitrosDataType::kFloat32);
-  auto bbox_coords_tensor = wrap_state_buffer(
-    "bbox_coords", buffer_data.bbox_coords,
-    shape_element_count(bbox_shape) * sizeof(float), bbox_shape,
-    nvidia::isaac_ros::nitros::NitrosDataType::kFloat32);
-  auto point_coords_tensor = wrap_state_buffer(
-    "point_coords", buffer_data.point_coords,
-    shape_element_count(point_coords_shape) * sizeof(float), point_coords_shape,
-    nvidia::isaac_ros::nitros::NitrosDataType::kFloat32);
-  auto point_labels_tensor = wrap_state_buffer(
-    "point_labels", buffer_data.point_labels,
-    shape_element_count(point_labels_shape) * sizeof(int32_t), point_labels_shape,
-    nvidia::isaac_ros::nitros::NitrosDataType::kInt32);
-  auto permutation_tensor = wrap_state_buffer(
-    "permutation", buffer_data.permutation,
-    shape_element_count(permutation_shape) * sizeof(int64_t), permutation_shape,
-    nvidia::isaac_ros::nitros::NitrosDataType::kInt64);
-
-  std_msgs::msg::Header header = msg->get_header();
-  nvidia::isaac_ros::nitros::NitrosTensorList tensor_list =
-    nvidia::isaac_ros::nitros::NitrosTensorListBuilder()
-    .WithHeader(header)
-    .AddTensor("image", std::move(image_tensor))
-    .AddTensor("original_size", std::move(original_size_tensor))
-    .AddTensor("mask_memory", std::move(mask_memory_tensor))
-    .AddTensor("obj_ptr_memory", std::move(obj_ptr_memory_tensor))
-    .AddTensor("bbox_coords", std::move(bbox_coords_tensor))
-    .AddTensor("point_coords", std::move(point_coords_tensor))
-    .AddTensor("point_labels", std::move(point_labels_tensor))
-    .AddTensor("permutation", std::move(permutation_tensor))
-    .Build();
+  // Tensor names live in the TensorList-level parallel names array; consumers
+  // such as TensorRTNode look tensors up through it, so keep both arrays in
+  // the same order.
+  TensorList tensor_list;
+  tensor_list.header = msg->header;
+  tensor_list.names = {"image", "original_size", "mask_memory", "obj_ptr_memory",
+    "bbox_coords", "point_coords", "point_labels", "permutation"};
+  tensor_list.tensors.push_back(std::move(image_tensor));
+  tensor_list.tensors.push_back(std::move(original_size_tensor));
+  tensor_list.tensors.push_back(std::move(mask_memory_tensor));
+  tensor_list.tensors.push_back(std::move(obj_ptr_memory_tensor));
+  tensor_list.tensors.push_back(std::move(bbox_coords_tensor));
+  tensor_list.tensors.push_back(std::move(point_coords_tensor));
+  tensor_list.tensors.push_back(std::move(point_labels_tensor));
+  tensor_list.tensors.push_back(std::move(permutation_tensor));
   encoded_data_pub_->publish(std::move(tensor_list));
 }
 
 void SegmentAnything2DataEncoderNode::MemoryCallback(
-  const nvidia::isaac_ros::nitros::NitrosTensorList::ConstSharedPtr & msg)
+  const TensorList::ConstSharedPtr & msg)
 {
-  auto object_score_logits = msg->get_tensor_by_name("object_score_logits");
-  auto maskmem_features = msg->get_tensor_by_name("maskmem_features");
-  auto maskmem_pos_enc = msg->get_tensor_by_name("maskmem_pos_enc");
-  auto obj_ptr_features = msg->get_tensor_by_name("obj_ptr_features");
+  const Tensor * object_score_logits = findTensor(*msg, "object_score_logits");
+  const Tensor * maskmem_features = findTensor(*msg, "maskmem_features");
+  const Tensor * maskmem_pos_enc = findTensor(*msg, "maskmem_pos_enc");
+  const Tensor * obj_ptr_features = findTensor(*msg, "obj_ptr_features");
   if (!object_score_logits || !maskmem_features || !maskmem_pos_enc || !obj_ptr_features) {
     throw std::runtime_error("Missing expected tensor in memory message");
   }
-  int64_t batch_size = object_score_logits->shape().dims()[0];
-  int64_t timestamp = static_cast<int64_t>(msg->get_timestamp_sec()) * 1000000000LL +
-    static_cast<int64_t>(msg->get_timestamp_nsec());
-  auto maskmem_features_handle = maskmem_features->get_read_handle(stream_);
-  auto maskmem_pos_enc_handle = maskmem_pos_enc->get_read_handle(stream_);
-  auto obj_ptr_features_handle = obj_ptr_features->get_read_handle(stream_);
-  auto object_score_logits_handle = object_score_logits->get_read_handle(stream_);
+  int64_t batch_size = object_score_logits->shape[0];
+  int64_t timestamp = static_cast<int64_t>(msg->header.stamp.sec) * 1000000000LL +
+    static_cast<int64_t>(msg->header.stamp.nanosec);
+  auto maskmem_features_handle =
+    cuda_buffer_backend::from_input_buffer(maskmem_features->data, stream_);
+  auto maskmem_pos_enc_handle =
+    cuda_buffer_backend::from_input_buffer(maskmem_pos_enc->data, stream_);
+  auto obj_ptr_features_handle =
+    cuda_buffer_backend::from_input_buffer(obj_ptr_features->data, stream_);
+  auto object_score_logits_handle =
+    cuda_buffer_backend::from_input_buffer(object_score_logits->data, stream_);
   sam2_state_manager_->updateAllMemories(
-    reinterpret_cast<const float *>(maskmem_features_handle.get_ptr()),
-    reinterpret_cast<const float *>(maskmem_pos_enc_handle.get_ptr()),
-    reinterpret_cast<const float *>(obj_ptr_features_handle.get_ptr()),
-    reinterpret_cast<const float *>(object_score_logits_handle.get_ptr()),
+    reinterpret_cast<const float *>(
+      maskmem_features_handle.get_ptr() + maskmem_features->byte_offset),
+    reinterpret_cast<const float *>(
+      maskmem_pos_enc_handle.get_ptr() + maskmem_pos_enc->byte_offset),
+    reinterpret_cast<const float *>(
+      obj_ptr_features_handle.get_ptr() + obj_ptr_features->byte_offset),
+    reinterpret_cast<const float *>(
+      object_score_logits_handle.get_ptr() + object_score_logits->byte_offset),
     stream_,
     batch_size,
     timestamp

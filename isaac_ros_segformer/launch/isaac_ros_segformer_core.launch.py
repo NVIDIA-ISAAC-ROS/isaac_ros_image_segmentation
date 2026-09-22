@@ -36,10 +36,8 @@ class IsaacROSSegformerLaunchFragment(IsaacROSLaunchFragment):
         model_repository_paths = LaunchConfiguration('model_repository_paths')
         input_tensor_names = LaunchConfiguration('input_tensor_names')
         input_binding_names = LaunchConfiguration('input_binding_names')
-        input_tensor_formats = LaunchConfiguration('input_tensor_formats')
         output_tensor_names = LaunchConfiguration('output_tensor_names')
         output_binding_names = LaunchConfiguration('output_binding_names')
-        output_tensor_formats = LaunchConfiguration('output_tensor_formats')
 
         # U-Net Decoder parameters
         network_output_type = LaunchConfiguration('network_output_type')
@@ -58,10 +56,8 @@ class IsaacROSSegformerLaunchFragment(IsaacROSLaunchFragment):
                     'max_batch_size': 1,
                     'input_tensor_names': input_tensor_names,
                     'input_binding_names': input_binding_names,
-                    'input_tensor_formats': input_tensor_formats,
                     'output_tensor_names': output_tensor_names,
                     'output_binding_names': output_binding_names,
-                    'output_tensor_formats': output_tensor_formats,
                 }]),
             'segformer_decoder_node': ComposableNode(
                 name='segformer_decoder_node',
@@ -130,10 +126,6 @@ class IsaacROSSegformerLaunchFragment(IsaacROSLaunchFragment):
                 'input_binding_names',
                 default_value='["input"]',
                 description='A list of input tensor binding names (specified by model)'),
-            'input_tensor_formats': DeclareLaunchArgument(
-                'input_tensor_formats',
-                default_value='["nitros_tensor_list_nchw_rgb_f32"]',
-                description='The nitros format of the input tensors'),
             'output_tensor_names': DeclareLaunchArgument(
                 'output_tensor_names',
                 default_value='["output_tensor"]',
@@ -143,10 +135,6 @@ class IsaacROSSegformerLaunchFragment(IsaacROSLaunchFragment):
                 'output_binding_names',
                 default_value='["output"]',
                 description='A  list of output tensor binding names (specified by model)'),
-            'output_tensor_formats': DeclareLaunchArgument(
-                'output_tensor_formats',
-                default_value='["nitros_tensor_list_nchw_rgb_f32"]',
-                description='The nitros format of the output tensors'),
             'tensorrt_verbose': DeclareLaunchArgument(
                 'tensorrt_verbose',
                 default_value='False',

@@ -36,10 +36,8 @@ class IsaacROSUNetLaunchFragment(IsaacROSLaunchFragment):
         engine_file_path = LaunchConfiguration('engine_file_path')
         input_tensor_names = LaunchConfiguration('input_tensor_names')
         input_binding_names = LaunchConfiguration('input_binding_names')
-        input_tensor_formats = LaunchConfiguration('input_tensor_formats')
         output_tensor_names = LaunchConfiguration('output_tensor_names')
         output_binding_names = LaunchConfiguration('output_binding_names')
-        output_tensor_formats = LaunchConfiguration('output_tensor_formats')
         tensorrt_verbose = LaunchConfiguration('tensorrt_verbose')
         force_engine_update = LaunchConfiguration('force_engine_update')
 
@@ -62,10 +60,8 @@ class IsaacROSUNetLaunchFragment(IsaacROSLaunchFragment):
                     'engine_file_path': engine_file_path,
                     'input_tensor_names': input_tensor_names,
                     'input_binding_names': input_binding_names,
-                    'input_tensor_formats': input_tensor_formats,
                     'output_tensor_names': output_tensor_names,
                     'output_binding_names': output_binding_names,
-                    'output_tensor_formats': output_tensor_formats,
                     'verbose': tensorrt_verbose,
                     'force_engine_update': force_engine_update
                 }]
@@ -158,10 +154,6 @@ class IsaacROSUNetLaunchFragment(IsaacROSLaunchFragment):
                 'input_binding_names',
                 default_value='["input_2:0"]',
                 description='A list of input tensor binding names (specified by model)'),
-            'input_tensor_formats': DeclareLaunchArgument(
-                'input_tensor_formats',
-                default_value='["nitros_tensor_list_nchw_bgr_f32"]',
-                description='The nitros format of the input tensors'),
             'output_tensor_names': DeclareLaunchArgument(
                 'output_tensor_names',
                 default_value='["output_tensor"]',
@@ -171,10 +163,6 @@ class IsaacROSUNetLaunchFragment(IsaacROSLaunchFragment):
                 'output_binding_names',
                 default_value='["argmax_1"]',
                 description='A  list of output tensor binding names (specified by model)'),
-            'output_tensor_formats': DeclareLaunchArgument(
-                'output_tensor_formats',
-                default_value='["nitros_tensor_list_nhwc_bgr_f32"]',
-                description='The nitros format of the output tensors'),
             'tensorrt_verbose': DeclareLaunchArgument(
                 'tensorrt_verbose',
                 default_value='False',

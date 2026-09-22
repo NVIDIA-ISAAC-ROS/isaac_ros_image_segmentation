@@ -17,7 +17,7 @@
 
 import time
 
-from isaac_ros_tensor_list_interfaces.msg import Tensor, TensorList, TensorShape
+from isaac_ros_tensor_msgs.msg import TensorList
 from isaac_ros_test import IsaacROSBaseTest
 import launch
 from launch_ros.actions import ComposableNodeContainer
@@ -27,6 +27,7 @@ import numpy as np
 import pytest
 import rclpy
 from sensor_msgs.msg import Image
+from tensor_msgs.msg import ExperimentalTensor
 
 
 @pytest.mark.rostest
@@ -85,18 +86,17 @@ class TensorToImageTest(IsaacROSBaseTest):
         tensor_msg = TensorList()
         tensor_msg.tensors = []
 
-        tensor = Tensor()
-        tensor_shape = TensorShape()
-
-        tensor_shape.rank = 4  # [batch, channel, height, width]
-        tensor_shape.dims = [1, 1, height, width]
-
-        tensor.shape = tensor_shape
-        tensor.name = 'segmentation'
-        tensor.data_type = 2  # UINT8
-        tensor.strides = []  # Let pynitros handle strides
+        tensor = ExperimentalTensor()
+        tensor.shape = [1, 1, height, width]  # [batch, channel, height, width]
+        tensor.dtype_code = 1  # DLPack UInt
+        tensor.dtype_bits = 8
+        tensor.dtype_lanes = 1
+        tensor.strides = []  # Contiguous row-major per the DLPack convention
+        tensor.byte_offset = 0
         tensor.data = test_tensor.tobytes()
 
+        # Tensor names live in the TensorList-level names array, parallel to tensors
+        tensor_msg.names.append('segmentation')
         tensor_msg.tensors.append(tensor)
 
         # Wait for subscriptions to be ready

@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -58,7 +58,6 @@ if(BUILD_TESTING)
   target_link_libraries(unet_decoder_node_test unet_decoder_node)
   target_include_directories(unet_decoder_node_test PUBLIC include/isaac_ros_unet/)
   ament_target_dependencies(unet_decoder_node_test rclcpp)
-  ament_target_dependencies(unet_decoder_node_test isaac_ros_nitros)
 
   # The FindPythonInterp and FindPythonLibs modules are removed
   if(POLICY CMP0148)

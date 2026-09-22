@@ -18,7 +18,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import cv2
 import cv_bridge
-from isaac_ros_tensor_list_interfaces.msg import TensorList
+from isaac_ros_tensor_msgs.msg import TensorList
 from message_filters import Subscriber, TimeSynchronizer
 import numpy as np
 import rclpy
@@ -60,7 +60,7 @@ class SegmentAnythingVisualization(Node):
         tensor = masks.tensors[0]
 
         # Extract dimensions directly from shape
-        dimensions = tensor.shape.dims.tolist()
+        dimensions = tensor.shape.tolist()
         num_masks = dimensions[0]
 
         # Reshape data more efficiently

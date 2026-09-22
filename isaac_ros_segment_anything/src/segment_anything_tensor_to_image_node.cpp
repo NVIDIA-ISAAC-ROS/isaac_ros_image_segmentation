@@ -21,11 +21,13 @@
 #include <string>
 #include <vector>
 
+#include "cuda_buffer/cuda_buffer_api.hpp"
 #include "isaac_ros_common/cuda_stream.hpp"
 #include "isaac_ros_segment_anything/segment_anything_binarize_tensor.hpp"
 
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/image_encodings.hpp"
+#include "tensor_msgs/msg/experimental_tensor.hpp"
 
 namespace nvidia
 {
@@ -50,6 +52,19 @@ std::string GetImageEncoding(const uint64_t element_size)
   }
 }
 
+// Size in bytes of a single element from the tensor's DLPack dtype fields.
+static inline uint64_t BytesPerElement(const tensor_msgs::msg::ExperimentalTensor & tensor)
+{
+  const uint64_t bits =
+    static_cast<uint64_t>(tensor.dtype_bits) * static_cast<uint64_t>(tensor.dtype_lanes);
+  if (bits == 0 || bits % 8 != 0) {
+    throw std::runtime_error(
+            "Unsupported tensor dtype: dtype_bits=" + std::to_string(tensor.dtype_bits) +
+            " dtype_lanes=" + std::to_string(tensor.dtype_lanes));
+  }
+  return bits / 8;
+}
+
 TensorToImageNode::TensorToImageNode(const rclcpp::NodeOptions & options)
 : rclcpp::Node("tensor_to_image", options),
   input_qos_{::isaac_ros::common::AddQosParameter(*this, kDefaultQoS, "input_qos")},
@@ -58,7 +73,8 @@ TensorToImageNode::TensorToImageNode(const rclcpp::NodeOptions & options)
   // Initialize subscriber
   rclcpp::SubscriptionOptions sub_options;
   sub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Enable;
-  tensor_list_sub_ = create_subscription<nvidia::isaac_ros::nitros::NitrosTensorList>(
+  sub_options.acceptable_buffer_backends = "any";
+  tensor_list_sub_ = create_subscription<isaac_ros_tensor_msgs::msg::TensorList>(
     "segmentation_tensor", input_qos_,
     std::bind(&TensorToImageNode::TensorListCallback, this, std::placeholders::_1),
     sub_options);
@@ -66,7 +82,7 @@ TensorToImageNode::TensorToImageNode(const rclcpp::NodeOptions & options)
   // Initialize publisher
   rclcpp::PublisherOptions pub_options;
   pub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Enable;
-  binary_mask_pub_ = create_publisher<nvidia::isaac_ros::nitros::NitrosImage>(
+  binary_mask_pub_ = create_publisher<sensor_msgs::msg::Image>(
     "binary_mask", output_qos_, pub_options);
 
   // Initialize standard ROS publisher for detections
@@ -83,30 +99,30 @@ TensorToImageNode::TensorToImageNode(const rclcpp::NodeOptions & options)
 }
 
 void TensorToImageNode::TensorListCallback(
-  const nvidia::isaac_ros::nitros::NitrosTensorList::ConstSharedPtr & tensor_list_msg)
+  const isaac_ros_tensor_msgs::msg::TensorList::ConstSharedPtr & tensor_list_msg)
 {
   try {
     // Get all tensors and verify we have at least one
-    if (tensor_list_msg->get_tensors().empty()) {
+    if (tensor_list_msg->tensors.empty()) {
       throw std::runtime_error("TensorList is empty");
     }
 
     // Get the first tensor in the list
-    const auto & tensor = tensor_list_msg->get_tensors().at(0);
+    const auto & tensor = tensor_list_msg->tensors.at(0);
 
-    if (tensor.shape().rank() != 4) {
-      std::string rank_str = std::to_string(tensor.shape().rank());
+    if (tensor.shape.size() != 4) {
+      std::string rank_str = std::to_string(tensor.shape.size());
       throw std::runtime_error("Tensor has incorrect rank, expected rank 4 but got " + rank_str);
     }
 
     // Get height and width, the input is a tensor of shape [batch_size, 1, height, width]
-    int height = static_cast<int>(tensor.shape().dims()[2]);
-    int width = static_cast<int>(tensor.shape().dims()[3]);
-    int batch_size = static_cast<int>(tensor.shape().dims()[0]);
-    int num_channels = static_cast<int>(tensor.shape().dims()[1]);
+    int height = static_cast<int>(tensor.shape[2]);
+    int width = static_cast<int>(tensor.shape[3]);
+    int batch_size = static_cast<int>(tensor.shape[0]);
+    int num_channels = static_cast<int>(tensor.shape[1]);
 
     // Get size for tensor data elements in bytes
-    uint64_t element_size = tensor.bytes_per_element();
+    uint64_t element_size = BytesPerElement(tensor);
 
     RCLCPP_DEBUG(
       get_logger(), "Width: %d, height: %d, element_size: %lu",
@@ -125,40 +141,47 @@ void TensorToImageNode::TensorListCallback(
     }
 
     // Also error out if bytes per element is not 1, because we are expecting a tensorlist
-    // which contains a tensor of shape [1, height, width] of type uint8, since managed
-    // nitros publishers can only publish uint8 tensors, we have to add this constraint.
+    // which contains a tensor of shape [1, height, width] of type uint8.
     if (element_size != 1) {
       throw std::runtime_error(
               "Tensor has incorrect element size, expected 1 byte per element but got " + \
               std::to_string(element_size));
     }
 
-    // Allocate the output image buffer and wrap it in a NitrosImage via from_external.
-    // The returned WriteHandle records a CUDA event on destruction so downstream
-    // consumers automatically wait on this write via get_read_handle, replacing the
-    // need for a producer-side cudaStreamSynchronize before publish.
+    // Build the header from the upstream tensor list before allocating the output
+    // image so it can be assigned to the image below.
+    std_msgs::msg::Header header;
+    header.frame_id = tensor_list_msg->header.frame_id;
+    header.stamp.sec = tensor_list_msg->header.stamp.sec;
+    header.stamp.nanosec = tensor_list_msg->header.stamp.nanosec;
+
+    // Allocate the output image with a cuda_buffer-backed payload. The WriteHandle
+    // obtained from the buffer records a CUDA event on destruction so downstream
+    // consumers automatically wait on this write, replacing the need for a
+    // producer-side cudaStreamSynchronize before publish.
     const size_t image_bytes =
       static_cast<size_t>(height) * static_cast<size_t>(width) * element_size;
-    void * gpu_buffer = nullptr;
-    CHECK_CUDA_ERROR(
-      cudaMallocAsync(&gpu_buffer, image_bytes, stream_),
-      "Failed to allocate GPU memory");
 
-    nvidia::isaac_ros::nitros::NitrosImage mask_image;
+    auto mask_image = std::make_unique<sensor_msgs::msg::Image>();
+    mask_image->header = header;
+    mask_image->height = height;
+    mask_image->width = width;
+    mask_image->encoding = GetImageEncoding(element_size);
+    mask_image->is_bigendian = 0;
+    mask_image->step = static_cast<uint32_t>(width * element_size);
+    mask_image->data = cuda_buffer_backend::allocate_buffer(image_bytes);
+
     BoundingBox bbox;
     {
-      auto mask_write_handle = mask_image.from_external(
-        gpu_buffer, image_bytes, width, height,
-        static_cast<uint32_t>(width * element_size),
-        GetImageEncoding(element_size), stream_);
-      uint8_t * mask_ptr = mask_write_handle.get_ptr();
+      auto wh = cuda_buffer_backend::from_output_buffer(mask_image->data, stream_);
+      uint8_t * mask_ptr = wh.get_ptr();
 
       // Copy tensor data into the freshly allocated buffer rather than aliasing the
       // input tensor's memory, which is owned by the upstream producer.
-      auto tensor_read_handle = tensor.get_read_handle(stream_);
+      auto tensor_read_handle = cuda_buffer_backend::from_input_buffer(tensor.data, stream_);
       CHECK_CUDA_ERROR(
         cudaMemcpyAsync(
-          mask_ptr, tensor_read_handle.get_ptr(), image_bytes,
+          mask_ptr, tensor_read_handle.get_ptr() + tensor.byte_offset, image_bytes,
           cudaMemcpyDeviceToDevice, stream_),
         "Failed to copy tensor data to GPU memory");
 
@@ -169,16 +192,6 @@ void TensorToImageNode::TensorListCallback(
     // Sync still required: FindBoundingBoxOnGPU issues async D2H copies into the
     // host-side `bbox` struct that is read immediately below.
     CHECK_CUDA_ERROR(cudaStreamSynchronize(stream_), "Failed to synchronize CUDA stream");
-
-    // Stamp the mask image with the upstream tensor's header.
-    mask_image.frame_id = tensor_list_msg->get_frame_id();
-    mask_image.timestamp_sec = tensor_list_msg->get_timestamp_sec();
-    mask_image.timestamp_nsec = tensor_list_msg->get_timestamp_nsec();
-
-    std_msgs::msg::Header header;
-    header.frame_id = mask_image.frame_id;
-    header.stamp.sec = static_cast<int32_t>(mask_image.timestamp_sec);
-    header.stamp.nanosec = mask_image.timestamp_nsec;
 
     binary_mask_pub_->publish(std::move(mask_image));
     RCLCPP_DEBUG(

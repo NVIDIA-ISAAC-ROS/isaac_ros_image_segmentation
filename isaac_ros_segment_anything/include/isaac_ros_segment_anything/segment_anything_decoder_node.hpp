@@ -25,8 +25,8 @@
 
 #include "rclcpp/rclcpp.hpp"
 
-#include "isaac_ros_nitros/types/cuda_memory_pool.hpp"
-#include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list.hpp"
+#include "cuda_buffer/cuda_buffer_api.hpp"
+#include "isaac_ros_tensor_msgs/msg/tensor_list.hpp"
 
 namespace nvidia
 {
@@ -42,13 +42,13 @@ public:
   ~SegmentAnythingDecoderNode();
 
 private:
-  using NitrosTensorList = nvidia::isaac_ros::nitros::NitrosTensorList;
+  using TensorList = isaac_ros_tensor_msgs::msg::TensorList;
 
-  void InputCallback(const NitrosTensorList::ConstSharedPtr & msg);
+  void InputCallback(const TensorList::ConstSharedPtr & msg);
 
   // Subscriber and publisher
-  rclcpp::Subscription<NitrosTensorList>::SharedPtr input_sub_;
-  rclcpp::Publisher<NitrosTensorList>::SharedPtr output_pub_;
+  rclcpp::Subscription<TensorList>::SharedPtr input_sub_;
+  rclcpp::Publisher<TensorList>::SharedPtr output_pub_;
 
   // Parameters
   int16_t mask_width_;
@@ -58,10 +58,6 @@ private:
 
   // CUDA stream
   cudaStream_t cuda_stream_{};
-
-  // Pre-allocated pool for output mask buffers; sized in the constructor by
-  // max_batch_size_ * mask_height_ * mask_width_.
-  nvidia::isaac_ros::nitros::CUDAMemoryPool output_pool_;
 };
 
 }  // namespace segment_anything

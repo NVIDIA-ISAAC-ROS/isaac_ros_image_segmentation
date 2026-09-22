@@ -17,14 +17,14 @@
 
 #pragma once
 
-#include <message_filters/subscriber.h>
-#include <message_filters/synchronizer.h>
-#include <message_filters/sync_policies/exact_time.h>
+#include <chrono>
 #include <memory>
 #include <string>
 #include <vector>
-#include <chrono>
 
+#include <message_filters/subscriber.hpp>
+#include <message_filters/synchronizer.hpp>
+#include <message_filters/sync_policies/exact_time.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/image.hpp>
@@ -32,8 +32,6 @@
 #include <vision_msgs/msg/detection2_d_array.hpp>
 #include <vision_msgs/msg/detection2_d.hpp>
 
-#include "isaac_ros_nitros_image_type/nitros_image.hpp"
-#include "isaac_ros_nitros/types/nitros_type_message_filter_traits.hpp"
 #include "isaac_ros_segment_anything2_interfaces/srv/add_objects.hpp"
 #include "isaac_ros_segment_anything2_interfaces/srv/remove_object.hpp"
 
@@ -50,7 +48,7 @@ namespace segment_anything
  *        image, camera info, and depth data (if available), and also converts
  *        the point to a Detection2DArray message.
  *        The node also limits the publishing rate to a maximum frequency.
- *        It supports the same three modes as NitrosCameraDropNode:
+ *        It supports the same three modes as CameraDropNode:
  *        - Mode 0(mono): Camera + CameraInfo
  *        - Mode 1(stereo): Camera + CameraInfo + Camera + CameraInfo
  *        - Mode 2(mono+depth): Camera + CameraInfo + Depth
@@ -70,18 +68,18 @@ private:
 
   // Subscribers
   rclcpp::Subscription<geometry_msgs::msg::Point>::SharedPtr point_sub_;
-  ::message_filters::Subscriber<nvidia::isaac_ros::nitros::NitrosImage> image_sub_1_;
+  ::message_filters::Subscriber<sensor_msgs::msg::Image> image_sub_1_;
   ::message_filters::Subscriber<sensor_msgs::msg::CameraInfo> camera_info_sub_1_;
-  ::message_filters::Subscriber<nvidia::isaac_ros::nitros::NitrosImage> image_sub_2_;
+  ::message_filters::Subscriber<sensor_msgs::msg::Image> image_sub_2_;
   ::message_filters::Subscriber<sensor_msgs::msg::CameraInfo> camera_info_sub_2_;
-  ::message_filters::Subscriber<nvidia::isaac_ros::nitros::NitrosImage> depth_sub_;
+  ::message_filters::Subscriber<sensor_msgs::msg::Image> depth_sub_;
 
   // Publishers
-  rclcpp::Publisher<nvidia::isaac_ros::nitros::NitrosImage>::SharedPtr image_pub_1_;
+  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_pub_1_;
   rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_pub_1_;
-  rclcpp::Publisher<nvidia::isaac_ros::nitros::NitrosImage>::SharedPtr image_pub_2_;
+  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_pub_2_;
   rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_pub_2_;
-  rclcpp::Publisher<nvidia::isaac_ros::nitros::NitrosImage>::SharedPtr depth_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr depth_pub_;
   rclcpp::Publisher<vision_msgs::msg::Detection2DArray>::SharedPtr detection_pub_;
 
   // Service clients
@@ -94,19 +92,19 @@ private:
 
   // Exact message sync policy
   using ExactPolicyMode0 = ::message_filters::sync_policies::ExactTime<
-    nvidia::isaac_ros::nitros::NitrosImage, sensor_msgs::msg::CameraInfo>;
+    sensor_msgs::msg::Image, sensor_msgs::msg::CameraInfo>;
   using ExactSyncMode0 = ::message_filters::Synchronizer<ExactPolicyMode0>;
   std::shared_ptr<ExactSyncMode0> exact_sync_mode_0_;  // Exact sync mode 0
 
   using ExactPolicyMode1 = ::message_filters::sync_policies::ExactTime<
-    nvidia::isaac_ros::nitros::NitrosImage, sensor_msgs::msg::CameraInfo,
-    nvidia::isaac_ros::nitros::NitrosImage, sensor_msgs::msg::CameraInfo>;
+    sensor_msgs::msg::Image, sensor_msgs::msg::CameraInfo,
+    sensor_msgs::msg::Image, sensor_msgs::msg::CameraInfo>;
   using ExactSyncMode1 = ::message_filters::Synchronizer<ExactPolicyMode1>;
   std::shared_ptr<ExactSyncMode1> exact_sync_mode_1_;  // Exact sync mode 1
 
   using ExactPolicyMode2 = ::message_filters::sync_policies::ExactTime<
-    nvidia::isaac_ros::nitros::NitrosImage, sensor_msgs::msg::CameraInfo,
-    nvidia::isaac_ros::nitros::NitrosImage>;
+    sensor_msgs::msg::Image, sensor_msgs::msg::CameraInfo,
+    sensor_msgs::msg::Image>;
   using ExactSyncMode2 = ::message_filters::Synchronizer<ExactPolicyMode2>;
   std::shared_ptr<ExactSyncMode2> exact_sync_mode_2_;  // Exact sync mode 2
 
@@ -138,7 +136,7 @@ private:
    * @param camera_info_ptr Pointer to the camera info message.
    */
   void sync_callback_mode_0(
-    const nvidia::isaac_ros::nitros::NitrosImage::ConstSharedPtr & image_ptr,
+    const sensor_msgs::msg::Image::ConstSharedPtr & image_ptr,
     const sensor_msgs::msg::CameraInfo::ConstSharedPtr & camera_info_ptr);
 
   /**
@@ -149,9 +147,9 @@ private:
    * @param camera_info_2_ptr Pointer to the second camera info message.
    */
   void sync_callback_mode_1(
-    const nvidia::isaac_ros::nitros::NitrosImage::ConstSharedPtr & image_1_ptr,
+    const sensor_msgs::msg::Image::ConstSharedPtr & image_1_ptr,
     const sensor_msgs::msg::CameraInfo::ConstSharedPtr & camera_info_1_ptr,
-    const nvidia::isaac_ros::nitros::NitrosImage::ConstSharedPtr & image_2_ptr,
+    const sensor_msgs::msg::Image::ConstSharedPtr & image_2_ptr,
     const sensor_msgs::msg::CameraInfo::ConstSharedPtr & camera_info_2_ptr);
 
   /**
@@ -161,9 +159,9 @@ private:
    * @param depth_ptr Pointer to the depth message.
    */
   void sync_callback_mode_2(
-    const nvidia::isaac_ros::nitros::NitrosImage::ConstSharedPtr & image_ptr,
+    const sensor_msgs::msg::Image::ConstSharedPtr & image_ptr,
     const sensor_msgs::msg::CameraInfo::ConstSharedPtr & camera_info_ptr,
-    const nvidia::isaac_ros::nitros::NitrosImage::ConstSharedPtr & depth_ptr);
+    const sensor_msgs::msg::Image::ConstSharedPtr & depth_ptr);
 
   /**
    * @brief Call the SAM2 AddObjects service to segment an object at a point.
@@ -195,9 +193,6 @@ private:
   // True if a point has been processed
   bool is_triggered_;
 
-  // Depth format string
-  std::string depth_format_string_;
-
   // Timeout for service call and discovery
   int service_call_timeout_;
   int service_discovery_timeout_;
@@ -214,7 +209,7 @@ private:
   // Latest synchronized camera data for each mode
   struct
   {
-    nvidia::isaac_ros::nitros::NitrosImage::ConstSharedPtr image;
+    sensor_msgs::msg::Image::ConstSharedPtr image;
     sensor_msgs::msg::CameraInfo::ConstSharedPtr camera_info;
     std::chrono::time_point<std::chrono::steady_clock> timestamp;
     bool valid{false};
@@ -222,9 +217,9 @@ private:
 
   struct
   {
-    nvidia::isaac_ros::nitros::NitrosImage::ConstSharedPtr image_1;
+    sensor_msgs::msg::Image::ConstSharedPtr image_1;
     sensor_msgs::msg::CameraInfo::ConstSharedPtr camera_info_1;
-    nvidia::isaac_ros::nitros::NitrosImage::ConstSharedPtr image_2;
+    sensor_msgs::msg::Image::ConstSharedPtr image_2;
     sensor_msgs::msg::CameraInfo::ConstSharedPtr camera_info_2;
     std::chrono::time_point<std::chrono::steady_clock> timestamp;
     bool valid{false};
@@ -232,9 +227,9 @@ private:
 
   struct
   {
-    nvidia::isaac_ros::nitros::NitrosImage::ConstSharedPtr image;
+    sensor_msgs::msg::Image::ConstSharedPtr image;
     sensor_msgs::msg::CameraInfo::ConstSharedPtr camera_info;
-    nvidia::isaac_ros::nitros::NitrosImage::ConstSharedPtr depth;
+    sensor_msgs::msg::Image::ConstSharedPtr depth;
     std::chrono::time_point<std::chrono::steady_clock> timestamp;
     bool valid{false};
   } latest_mode_2_data_;

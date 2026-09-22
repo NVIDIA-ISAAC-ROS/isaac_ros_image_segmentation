@@ -25,7 +25,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 
-#include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list.hpp"
+#include "isaac_ros_tensor_msgs/msg/tensor_list.hpp"
 namespace nvidia
 {
 namespace isaac_ros
@@ -42,15 +42,15 @@ public:
 
 private:
   void InputCallback(
-    const nvidia::isaac_ros::nitros::NitrosTensorList::ConstSharedPtr & msg);
+    const isaac_ros_tensor_msgs::msg::TensorList::ConstSharedPtr & msg);
 
-  // Subscription to input NitrosTensorList messages
-  rclcpp::Subscription<nvidia::isaac_ros::nitros::NitrosTensorList>::SharedPtr nitros_sub_;
+  // Subscription to input TensorList messages
+  rclcpp::Subscription<isaac_ros_tensor_msgs::msg::TensorList>::SharedPtr tensor_sub_;
 
-  // Publisher for output NitrosTensorList messages
-  rclcpp::Publisher<nvidia::isaac_ros::nitros::NitrosTensorList>::SharedPtr nitros_pub_;
+  // Publisher for output TensorList messages
+  rclcpp::Publisher<isaac_ros_tensor_msgs::msg::TensorList>::SharedPtr tensor_pub_;
 
-  // Name of tensor in NitrosTensorList
+  // Name of tensor in TensorList
   std::string tensor_name_{};
 
   // CUDA stream for async operations

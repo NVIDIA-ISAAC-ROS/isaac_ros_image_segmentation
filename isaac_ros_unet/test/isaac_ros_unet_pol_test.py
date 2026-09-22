@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: NVIDIA CORPORATION & AFFILIATES
-# Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# Copyright (c) 2021-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@
 """
 Proof-Of-Life test for the Isaac ROS U-Net package.
 
-    1. Sets up DnnImageEncoderNode, TensorRTNode, UNetDecoderNode
+    1. Sets up the DNN image encoder launch graph, TensorRTNode, UNetDecoderNode
     2. Loads a sample image and publishes it
     3. Subscribes to the relevant topics, waiting for an output from UNetDecodeNode
     4. Verifies that the received output sizes and encodings are correct (based on dummy model)
@@ -108,7 +108,6 @@ def generate_test_description():
             'output_binding_names': ['softmax_1'],
             'verbose': False,
             'force_engine_update': False,
-            'memory_pool_block_size': 1024 * 1024 * 40,
             'max_workspace_size': 512*1024*1024,  # 512MB
         }])
     unet_decoder_node = ComposableNode(

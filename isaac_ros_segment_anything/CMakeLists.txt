@@ -26,34 +26,11 @@ find_package(ament_cmake_auto REQUIRED)
 ament_auto_find_build_dependencies()
 find_package(CUDAToolkit REQUIRED)
 find_package(isaac_ros_common REQUIRED)
-find_package(isaac_ros_nitros REQUIRED)
-find_package(isaac_ros_nitros_image_type REQUIRED)
-find_package(isaac_ros_nitros_tensor_list_type REQUIRED)
 find_package(isaac_ros_segment_anything2_interfaces REQUIRED)
-find_package(isaac_ros_tensor_list_interfaces REQUIRED)
 find_library(ISAAC_ROS_COMMON_LIBRARY isaac_ros_common REQUIRED)
-find_library(ISAAC_ROS_NITROS_LIBRARY isaac_ros_nitros REQUIRED)
-find_library(ISAAC_ROS_NITROS_IMAGE_TYPE_LIBRARY
-  isaac_ros_nitros_image_type REQUIRED)
-find_library(ISAAC_ROS_NITROS_TENSOR_LIST_TYPE_LIBRARY
-  isaac_ros_nitros_tensor_list_type REQUIRED)
 find_library(ISAAC_ROS_SEGMENT_ANYTHING2_INTERFACES_TYPESUPPORT_CPP_LIBRARY
   isaac_ros_segment_anything2_interfaces__rosidl_typesupport_cpp REQUIRED)
-find_library(ISAAC_ROS_TENSOR_LIST_INTERFACES_TYPESUPPORT_CPP_LIBRARY
-  isaac_ros_tensor_list_interfaces__rosidl_typesupport_cpp REQUIRED)
 
-set(SEGMENT_ANYTHING_IMAGE_LIBRARIES
-  CUDA::cudart
-  ${ISAAC_ROS_NITROS_LIBRARY}
-  ${ISAAC_ROS_NITROS_IMAGE_TYPE_LIBRARY}
-)
-
-set(SEGMENT_ANYTHING_TENSOR_LIST_LIBRARIES
-  CUDA::cudart
-  ${ISAAC_ROS_NITROS_LIBRARY}
-  ${ISAAC_ROS_NITROS_TENSOR_LIST_TYPE_LIBRARY}
-  ${ISAAC_ROS_TENSOR_LIST_INTERFACES_TYPESUPPORT_CPP_LIBRARY}
-)
 enable_language(CUDA)
 # Decoder node
 
@@ -61,7 +38,7 @@ ament_auto_add_library(segment_anything_decoder_node SHARED
   src/segment_anything_decoder_node.cpp
   src/segment_anything_binarize_tensor.cu)
 target_link_libraries(segment_anything_decoder_node
-  ${SEGMENT_ANYTHING_TENSOR_LIST_LIBRARIES}
+  CUDA::cudart
 )
 rclcpp_components_register_nodes(segment_anything_decoder_node "nvidia::isaac_ros::segment_anything::SegmentAnythingDecoderNode")
 set(node_plugins
@@ -78,7 +55,7 @@ set_source_files_properties(
 
 ament_auto_add_library(segment_anything_data_encoder_node SHARED src/segment_anything_data_encoder_node.cpp)
 target_link_libraries(segment_anything_data_encoder_node
-  ${SEGMENT_ANYTHING_TENSOR_LIST_LIBRARIES}
+  CUDA::cudart
 )
 rclcpp_components_register_nodes(segment_anything_data_encoder_node "nvidia::isaac_ros::segment_anything::SegmentAnythingDataEncoderNode")
 set(node_plugins
@@ -90,8 +67,8 @@ set_target_properties(segment_anything_data_encoder_node PROPERTIES
 
 ament_auto_add_library(segment_anything_dummy_mask_publisher_node SHARED src/segment_anything_dummy_mask_publisher_node.cpp)
 target_link_libraries(segment_anything_dummy_mask_publisher_node
+  CUDA::cudart
   ${ISAAC_ROS_COMMON_LIBRARY}
-  ${SEGMENT_ANYTHING_TENSOR_LIST_LIBRARIES}
 )
 rclcpp_components_register_nodes(segment_anything_dummy_mask_publisher_node "nvidia::isaac_ros::segment_anything::DummyMaskPublisher")
 set(node_plugins
@@ -103,9 +80,9 @@ set_target_properties(segment_anything_dummy_mask_publisher_node PROPERTIES
 
 ament_auto_add_library(segment_anything_point_triggered_node SHARED src/segment_anything_point_triggered_node.cpp)
 target_link_libraries(segment_anything_point_triggered_node
+  CUDA::cudart
   ${ISAAC_ROS_COMMON_LIBRARY}
   ${ISAAC_ROS_SEGMENT_ANYTHING2_INTERFACES_TYPESUPPORT_CPP_LIBRARY}
-  ${SEGMENT_ANYTHING_IMAGE_LIBRARIES}
 )
 rclcpp_components_register_nodes(
   segment_anything_point_triggered_node "nvidia::isaac_ros::segment_anything::SegmentAnythingPointTriggeredNode")
@@ -121,9 +98,8 @@ ament_auto_add_library(segment_anything_tensor_to_image_node SHARED
   src/segment_anything_tensor_to_image_node.cpp
   src/segment_anything_binarize_tensor.cu)
 target_link_libraries(segment_anything_tensor_to_image_node
+  CUDA::cudart
   ${ISAAC_ROS_COMMON_LIBRARY}
-  ${SEGMENT_ANYTHING_IMAGE_LIBRARIES}
-  ${SEGMENT_ANYTHING_TENSOR_LIST_LIBRARIES}
 )
 rclcpp_components_register_nodes(segment_anything_tensor_to_image_node
   "nvidia::isaac_ros::segment_anything::TensorToImageNode")
@@ -161,10 +137,9 @@ if(BUILD_TESTING)
 
   # Gtests for segment anything data encoder node
   ament_add_gtest(segment_anything_data_encoder_node_test test/segment_anything_data_encoder_node_test.cpp)
-  target_link_libraries(segment_anything_data_encoder_node_test segment_anything_data_encoder_node)
+  target_link_libraries(segment_anything_data_encoder_node_test
+    segment_anything_data_encoder_node rclcpp::rclcpp)
   target_include_directories(segment_anything_data_encoder_node_test PUBLIC include/isaac_ros_segment_anything/)
-  ament_target_dependencies(segment_anything_data_encoder_node_test rclcpp)
-  ament_target_dependencies(segment_anything_data_encoder_node_test isaac_ros_nitros)
 
   # The FindPythonInterp and FindPythonLibs modules are removed
   if(POLICY CMP0148)
