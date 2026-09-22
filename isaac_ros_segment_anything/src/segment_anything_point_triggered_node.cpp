@@ -15,8 +15,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "isaac_ros_nitros_topic_tools/isaac_ros_nitros_topic_tools_common.hpp"
 #include "isaac_ros_segment_anything/segment_anything_point_triggered_node.hpp"
+
+#include <string>
+#include <unordered_map>
 
 #include "rclcpp/rclcpp.hpp"
 
@@ -25,7 +27,23 @@
 namespace
 {
 constexpr double kDetectionSize = 10.0;
-}
+
+constexpr const char kModeMono[] = "mono";
+constexpr const char kModeStereo[] = "stereo";
+constexpr const char kModeMonoDepth[] = "mono+depth";
+
+enum class CameraDropMode
+{
+  Mono,
+  Stereo,
+  MonoDepth
+};
+
+const std::unordered_map<CameraDropMode, std::string> modeToStringMap = {
+  {CameraDropMode::Mono, kModeMono},
+  {CameraDropMode::MonoDepth, kModeMonoDepth},
+  {CameraDropMode::Stereo, kModeStereo}};
+}  // namespace
 
 namespace nvidia
 {
@@ -46,8 +64,6 @@ SegmentAnythingPointTriggeredNode::SegmentAnythingPointTriggeredNode(
   mode_ = declare_parameter<std::string>("mode", modeToStringMap.at(CameraDropMode::Mono));
   is_sam2_ = declare_parameter<bool>("is_sam2", false);
   is_triggered_ = false;
-  depth_format_string_ =
-    declare_parameter<std::string>("depth_format_string", "nitros_image_32FC1");
   sync_queue_size_ = declare_parameter<int>("sync_queue_size", 10);
   input_queue_size_ = declare_parameter<int>("input_queue_size", 10);
   output_queue_size_ = declare_parameter<int>("output_queue_size", 10);
@@ -59,7 +75,6 @@ SegmentAnythingPointTriggeredNode::SegmentAnythingPointTriggeredNode(
     *this, kDefaultQoS, "input_qos").keep_last(input_queue_size_);
   const rclcpp::QoS output_qos = ::isaac_ros::common::AddQosParameter(
     *this, kDefaultQoS, "output_qos").keep_last(output_queue_size_);
-  const rmw_qos_profile_t input_qos_profile = input_qos.get_rmw_qos_profile();
 
   // Initialize last point time
   last_point_time_ = std::chrono::steady_clock::now();
@@ -73,6 +88,7 @@ SegmentAnythingPointTriggeredNode::SegmentAnythingPointTriggeredNode(
 
   rclcpp::SubscriptionOptions sub_options;
   sub_options.callback_group = subscription_cb_group_;
+  sub_options.acceptable_buffer_backends = "any";
 
   // Point subscriber
   point_sub_ = this->create_subscription<geometry_msgs::msg::Point>(
@@ -91,7 +107,7 @@ SegmentAnythingPointTriggeredNode::SegmentAnythingPointTriggeredNode(
   // Initialize common subscribers and publishers for all modes
   rclcpp::PublisherOptions pub_options;
   pub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Enable;
-  image_pub_1_ = create_publisher<nvidia::isaac_ros::nitros::NitrosImage>(
+  image_pub_1_ = create_publisher<sensor_msgs::msg::Image>(
     "image_1_triggered", output_qos, pub_options);
   camera_info_pub_1_ = this->create_publisher<
     sensor_msgs::msg::CameraInfo>("camera_info_1_triggered", output_qos);
@@ -107,12 +123,12 @@ SegmentAnythingPointTriggeredNode::SegmentAnythingPointTriggeredNode(
     using namespace std::placeholders;
     exact_sync_mode_0_->registerCallback(
       std::bind(&SegmentAnythingPointTriggeredNode::sync_callback_mode_0, this, _1, _2));
-    image_sub_1_.subscribe(this, "image_1", input_qos_profile, sub_options);
-    camera_info_sub_1_.subscribe(this, "camera_info_1", input_qos_profile, sub_options);
+    image_sub_1_.subscribe(this, "image_1", input_qos, sub_options);
+    camera_info_sub_1_.subscribe(this, "camera_info_1", input_qos, sub_options);
   } else if (mode_ == modeToStringMap.at(CameraDropMode::Stereo)) {
     // Mode 1: Camera + CameraInfo + Camera + CameraInfo (stereo)
     // Initialize second mono publishers
-    image_pub_2_ = create_publisher<nvidia::isaac_ros::nitros::NitrosImage>(
+    image_pub_2_ = create_publisher<sensor_msgs::msg::Image>(
       "image_2_triggered", output_qos, pub_options);
     camera_info_pub_2_ = this->create_publisher<
       sensor_msgs::msg::CameraInfo>("camera_info_2_triggered", output_qos);
@@ -123,14 +139,14 @@ SegmentAnythingPointTriggeredNode::SegmentAnythingPointTriggeredNode(
     using namespace std::placeholders;
     exact_sync_mode_1_->registerCallback(
       std::bind(&SegmentAnythingPointTriggeredNode::sync_callback_mode_1, this, _1, _2, _3, _4));
-    image_sub_1_.subscribe(this, "image_1", input_qos_profile, sub_options);
-    camera_info_sub_1_.subscribe(this, "camera_info_1", input_qos_profile, sub_options);
-    image_sub_2_.subscribe(this, "image_2", input_qos_profile, sub_options);
-    camera_info_sub_2_.subscribe(this, "camera_info_2", input_qos_profile, sub_options);
+    image_sub_1_.subscribe(this, "image_1", input_qos, sub_options);
+    camera_info_sub_1_.subscribe(this, "camera_info_1", input_qos, sub_options);
+    image_sub_2_.subscribe(this, "image_2", input_qos, sub_options);
+    camera_info_sub_2_.subscribe(this, "camera_info_2", input_qos, sub_options);
   } else if (mode_ == modeToStringMap.at(CameraDropMode::MonoDepth)) {
     // Mode 2: Camera + CameraInfo + Depth (mono+depth)
     // Initialize depth publisher
-    depth_pub_ = create_publisher<nvidia::isaac_ros::nitros::NitrosImage>(
+    depth_pub_ = create_publisher<sensor_msgs::msg::Image>(
       "depth_1_triggered", output_qos, pub_options);
     // Initialize sync policy and register callback before subscribing
     exact_sync_mode_2_ = std::make_shared<ExactSyncMode2>(
@@ -138,9 +154,9 @@ SegmentAnythingPointTriggeredNode::SegmentAnythingPointTriggeredNode(
     using namespace std::placeholders;
     exact_sync_mode_2_->registerCallback(
       std::bind(&SegmentAnythingPointTriggeredNode::sync_callback_mode_2, this, _1, _2, _3));
-    image_sub_1_.subscribe(this, "image_1", input_qos_profile, sub_options);
-    camera_info_sub_1_.subscribe(this, "camera_info_1", input_qos_profile, sub_options);
-    depth_sub_.subscribe(this, "depth_1", input_qos_profile, sub_options);
+    image_sub_1_.subscribe(this, "image_1", input_qos, sub_options);
+    camera_info_sub_1_.subscribe(this, "camera_info_1", input_qos, sub_options);
+    depth_sub_.subscribe(this, "depth_1", input_qos, sub_options);
   } else {
     RCLCPP_ERROR(get_logger(), "Invalid mode: %s", mode_.c_str());
   }
@@ -270,7 +286,7 @@ bool SegmentAnythingPointTriggeredNode::check_rate_limit()
 }
 
 void SegmentAnythingPointTriggeredNode::sync_callback_mode_0(
-  const nvidia::isaac_ros::nitros::NitrosImage::ConstSharedPtr & image_ptr,
+  const sensor_msgs::msg::Image::ConstSharedPtr & image_ptr,
   const sensor_msgs::msg::CameraInfo::ConstSharedPtr & camera_info_ptr)
 {
   // Store the latest synchronized data
@@ -281,9 +297,9 @@ void SegmentAnythingPointTriggeredNode::sync_callback_mode_0(
 }
 
 void SegmentAnythingPointTriggeredNode::sync_callback_mode_1(
-  const nvidia::isaac_ros::nitros::NitrosImage::ConstSharedPtr & image_1_ptr,
+  const sensor_msgs::msg::Image::ConstSharedPtr & image_1_ptr,
   const sensor_msgs::msg::CameraInfo::ConstSharedPtr & camera_info_1_ptr,
-  const nvidia::isaac_ros::nitros::NitrosImage::ConstSharedPtr & image_2_ptr,
+  const sensor_msgs::msg::Image::ConstSharedPtr & image_2_ptr,
   const sensor_msgs::msg::CameraInfo::ConstSharedPtr & camera_info_2_ptr)
 {
   // Store the latest synchronized stereo data
@@ -296,9 +312,9 @@ void SegmentAnythingPointTriggeredNode::sync_callback_mode_1(
 }
 
 void SegmentAnythingPointTriggeredNode::sync_callback_mode_2(
-  const nvidia::isaac_ros::nitros::NitrosImage::ConstSharedPtr & image_ptr,
+  const sensor_msgs::msg::Image::ConstSharedPtr & image_ptr,
   const sensor_msgs::msg::CameraInfo::ConstSharedPtr & camera_info_ptr,
-  const nvidia::isaac_ros::nitros::NitrosImage::ConstSharedPtr & depth_ptr)
+  const sensor_msgs::msg::Image::ConstSharedPtr & depth_ptr)
 {
   // Store the latest synchronized mono+depth data
   latest_mode_2_data_.image = image_ptr;

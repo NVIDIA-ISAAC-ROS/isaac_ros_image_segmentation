@@ -19,19 +19,19 @@
 #define ISAAC_ROS_SEGMENT_ANYTHING__SEGMENT_ANYTHING_DATA_ENCODER_NODE_HPP_
 
 #include <cuda_runtime.h>
-#include <message_filters/subscriber.h>
-#include <message_filters/synchronizer.h>
-#include <message_filters/sync_policies/exact_time.h>
 
 #include <memory>
 #include <string>
 #include <vector>
 
+#include <message_filters/subscriber.hpp>
+#include <message_filters/synchronizer.hpp>
+#include <message_filters/sync_policies/exact_time.hpp>
+
 #include "rclcpp/rclcpp.hpp"
 #include "vision_msgs/msg/detection2_d_array.hpp"
 
-#include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list.hpp"
-#include "isaac_ros_nitros/types/nitros_type_message_filter_traits.hpp"
+#include "isaac_ros_tensor_msgs/msg/tensor_list.hpp"
 
 namespace nvidia
 {
@@ -49,17 +49,17 @@ public:
   ~SegmentAnythingDataEncoderNode();
 
 private:
-  using NitrosTensorList = nvidia::isaac_ros::nitros::NitrosTensorList;
+  using TensorList = isaac_ros_tensor_msgs::msg::TensorList;
   using Detection2DArray = vision_msgs::msg::Detection2DArray;
 
   using ExactPolicy = message_filters::sync_policies::ExactTime<
-    Detection2DArray, NitrosTensorList, NitrosTensorList>;
+    Detection2DArray, TensorList, TensorList>;
   using ExactSync = message_filters::Synchronizer<ExactPolicy>;
 
   void SyncCallback(
     const Detection2DArray::ConstSharedPtr & prompts,
-    const NitrosTensorList::ConstSharedPtr & image_tensor,
-    const NitrosTensorList::ConstSharedPtr & mask_tensor);
+    const TensorList::ConstSharedPtr & image_tensor,
+    const TensorList::ConstSharedPtr & mask_tensor);
 
   void DetectionToSAMPrompt(
     const std::vector<vision_msgs::msg::Detection2D> & detections,
@@ -68,12 +68,12 @@ private:
 
   // Subscribers (message_filters)
   message_filters::Subscriber<Detection2DArray> prompt_sub_;
-  message_filters::Subscriber<NitrosTensorList> image_sub_;
-  message_filters::Subscriber<NitrosTensorList> mask_sub_;
+  message_filters::Subscriber<TensorList> image_sub_;
+  message_filters::Subscriber<TensorList> mask_sub_;
   std::shared_ptr<ExactSync> exact_sync_;
 
   // Publisher
-  rclcpp::Publisher<NitrosTensorList>::SharedPtr output_pub_;
+  rclcpp::Publisher<TensorList>::SharedPtr output_pub_;
 
   // Parameters
   int32_t max_batch_size_;

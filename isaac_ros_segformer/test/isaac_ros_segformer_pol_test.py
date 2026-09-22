@@ -18,7 +18,7 @@
 """
 Proof-Of-Life test for the Isaac ROS Segformer package.
 
-    1. Sets up DnnImageEncoderNode, TensorRTNode, UNetDecoderNode
+    1. Sets up the DNN image encoder launch graph, TensorRTNode, UNetDecoderNode
     2. Loads a sample image and publishes it
     3. Subscribes to the relevant topics, waiting for an output from UNetDecodeNode
     4. Verifies that the received output sizes and encodings are correct (based on dummy model)
@@ -93,6 +93,7 @@ def generate_test_description():
             'input_image_height': '632',
             'network_image_width': '512',
             'network_image_height': '512',
+            'input_encoding': 'bgr8',
             'tensor_name': 'input_tensor',
             'enable_padding': 'True',
             'final_tensor_name': 'input_tensor',
@@ -119,8 +120,6 @@ def generate_test_description():
             'verbose': False,
             'force_engine_update': False,
             'max_workspace_size': 104857600,
-            'output_tensor_formats': ['nitros_tensor_list_nchw_rgb_f32'],
-            'input_tensor_formats': ['nitros_tensor_list_nchw_rgb_f32']
         }])
 
     segformer_decoder_node = ComposableNode(

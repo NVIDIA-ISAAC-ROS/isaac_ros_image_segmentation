@@ -70,10 +70,6 @@ def generate_launch_description():
             default_value='["input"]',
             description='A list of input tensor binding names (specified by model)'),
         DeclareLaunchArgument(
-            'input_tensor_formats',
-            default_value='["nitros_tensor_list_nchw_rgb_f32"]',
-            description='The nitros format of the input tensors'),
-        DeclareLaunchArgument(
             'output_tensor_names',
             default_value='["output_tensor"]',
             description='A list of tensor names to bound to the specified output binding names'),
@@ -81,10 +77,6 @@ def generate_launch_description():
             'output_binding_names',
             default_value='["output"]',
             description='A  list of output tensor binding names (specified by model)'),
-        DeclareLaunchArgument(
-            'output_tensor_formats',
-            default_value='["nitros_tensor_list_nchw_rgb_f32"]',
-            description='The nitros format of the output tensors'),
         DeclareLaunchArgument(
             'tensorrt_verbose',
             default_value='False',
@@ -128,10 +120,8 @@ def generate_launch_description():
     engine_file_path = LaunchConfiguration('engine_file_path')
     input_tensor_names = LaunchConfiguration('input_tensor_names')
     input_binding_names = LaunchConfiguration('input_binding_names')
-    input_tensor_formats = LaunchConfiguration('input_tensor_formats')
     output_tensor_names = LaunchConfiguration('output_tensor_names')
     output_binding_names = LaunchConfiguration('output_binding_names')
-    output_tensor_formats = LaunchConfiguration('output_tensor_formats')
     tensorrt_verbose = LaunchConfiguration('tensorrt_verbose')
     force_engine_update = LaunchConfiguration('force_engine_update')
     max_workspace_size = LaunchConfiguration('max_workspace_size')
@@ -176,10 +166,8 @@ def generate_launch_description():
             'engine_file_path': engine_file_path,
             'input_tensor_names': input_tensor_names,
             'input_binding_names': input_binding_names,
-            'input_tensor_formats': input_tensor_formats,
             'output_tensor_names': output_tensor_names,
             'output_binding_names': output_binding_names,
-            'output_tensor_formats': output_tensor_formats,
             'verbose': tensorrt_verbose,
             'force_engine_update': force_engine_update,
             'max_workspace_size': max_workspace_size

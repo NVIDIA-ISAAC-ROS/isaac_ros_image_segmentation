@@ -18,11 +18,11 @@
 #include <cuda_runtime.h>
 #include <string>
 
+#include "cuda_buffer/cuda_buffer_api.hpp"
 #include "isaac_ros_common/cuda_stream.hpp"
-#include "isaac_ros_nitros_tensor_list_type/nitros_tensor.hpp"
-#include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list_builder.hpp"
-#include "isaac_ros_nitros_tensor_list_type/nitros_tensor_shape.hpp"
+#include "isaac_ros_tensor_msgs/msg/tensor_list.hpp"
 #include "isaac_ros_segment_anything/segment_anything_dummy_mask_publisher_node.hpp"
+#include "tensor_msgs/msg/experimental_tensor.hpp"
 namespace nvidia
 {
 namespace isaac_ros
@@ -37,7 +37,8 @@ DummyMaskPublisher::DummyMaskPublisher(const rclcpp::NodeOptions options)
   // Initialize subscriber
   rclcpp::SubscriptionOptions sub_options;
   sub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Enable;
-  nitros_sub_ = create_subscription<nvidia::isaac_ros::nitros::NitrosTensorList>(
+  sub_options.acceptable_buffer_backends = "any";
+  tensor_sub_ = create_subscription<isaac_ros_tensor_msgs::msg::TensorList>(
     "tensor_pub", rclcpp::QoS(10),
     std::bind(&DummyMaskPublisher::InputCallback, this, std::placeholders::_1),
     sub_options);
@@ -45,7 +46,7 @@ DummyMaskPublisher::DummyMaskPublisher(const rclcpp::NodeOptions options)
   // Initialize publisher
   rclcpp::PublisherOptions pub_options;
   pub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Enable;
-  nitros_pub_ = create_publisher<nvidia::isaac_ros::nitros::NitrosTensorList>(
+  tensor_pub_ = create_publisher<isaac_ros_tensor_msgs::msg::TensorList>(
     "mask", rclcpp::QoS(10), pub_options);
 
   // Initialize CUDA stream
@@ -70,40 +71,35 @@ DummyMaskPublisher::~DummyMaskPublisher()
 }
 
 void DummyMaskPublisher::InputCallback(
-  const nvidia::isaac_ros::nitros::NitrosTensorList::ConstSharedPtr & msg)
+  const isaac_ros_tensor_msgs::msg::TensorList::ConstSharedPtr & msg)
 {
   constexpr size_t kBufferSize = 256 * 256 * 4;
 
-  void * buffer = nullptr;
-  CHECK_CUDA_ERROR(
-    cudaMallocAsync(&buffer, kBufferSize, stream_),
-    "Failed to allocate GPU memory");
-
-  nvidia::isaac_ros::nitros::NitrosTensor mask_tensor;
-  {
-    // Use from_external's default sync cudaFree deleter: capturing the node's
-    // stream_ in an async deleter would dangle if a published tensor outlives
-    // ~DummyMaskPublisher (which destroys the stream).
-    auto write_handle = mask_tensor.from_external(
-      tensor_name_, buffer, kBufferSize,
-      nvidia::isaac_ros::nitros::NitrosTensorShape({1, 1, 256, 256}),
-      nvidia::isaac_ros::nitros::NitrosDataType::kFloat32, stream_);
-    CHECK_CUDA_ERROR(
-      cudaMemsetAsync(write_handle.get_ptr(), 0, kBufferSize, stream_),
-      "Failed to zero GPU memory");
-  }  // WriteHandle destructor records the producer-side CUDA event.
-
   std_msgs::msg::Header header;
-  header.stamp.sec = static_cast<int32_t>(msg->get_timestamp_sec());
-  header.stamp.nanosec = msg->get_timestamp_nsec();
-  header.frame_id = msg->get_frame_id();
+  header.stamp.sec = msg->header.stamp.sec;
+  header.stamp.nanosec = msg->header.stamp.nanosec;
+  header.frame_id = msg->header.frame_id;
 
-  nvidia::isaac_ros::nitros::NitrosTensorList tensor_list =
-    nvidia::isaac_ros::nitros::NitrosTensorListBuilder()
-    .WithHeader(header)
-    .AddTensor(tensor_name_, std::move(mask_tensor))
-    .Build();
-  nitros_pub_->publish(std::move(tensor_list));
+  auto out = std::make_unique<isaac_ros_tensor_msgs::msg::TensorList>();
+  out->header = header;
+  tensor_msgs::msg::ExperimentalTensor t;
+  t.dtype_code = 2;   // DLPack Float
+  t.dtype_bits = 32;
+  t.dtype_lanes = 1;
+  t.shape = {1, 1, 256, 256};
+  // strides left empty: contiguous row-major per DLPack convention
+  t.byte_offset = 0;
+  t.data = cuda_buffer_backend::allocate_buffer(kBufferSize);
+  {
+    auto wh = cuda_buffer_backend::from_output_buffer(t.data, stream_);
+    CHECK_CUDA_ERROR(
+      cudaMemsetAsync(wh.get_ptr(), 0, kBufferSize, stream_),
+      "Failed to zero GPU memory");
+  }
+  // Tensor names live in the TensorList-level names array, parallel to tensors.
+  out->names.push_back(tensor_name_);
+  out->tensors.push_back(std::move(t));
+  tensor_pub_->publish(std::move(out));
 }
 
 }  // namespace segment_anything

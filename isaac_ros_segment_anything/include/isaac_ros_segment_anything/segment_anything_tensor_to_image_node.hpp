@@ -17,13 +17,15 @@
 
 #pragma once
 
+#include <cuda_runtime.h>
+
 #include <memory>
 #include <string>
 
 #include "isaac_ros_common/qos.hpp"
-#include "isaac_ros_nitros_image_type/nitros_image.hpp"
-#include "isaac_ros_nitros_tensor_list_type/nitros_tensor_list.hpp"
+#include "isaac_ros_tensor_msgs/msg/tensor_list.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "sensor_msgs/msg/image.hpp"
 #include "vision_msgs/msg/detection2_d_array.hpp"
 
 namespace nvidia
@@ -36,8 +38,8 @@ namespace segment_anything
 /**
  * @brief Node that converts a TensorList containing segmentation masks to a binary mask image.
  *
- * This node subscribes to a NITROS TensorList topic and converts the segmentation masks to a
- * binary mask image using NITROS. It only supports batch size 1 tensors.
+ * This node subscribes to a TensorList topic and converts the segmentation masks to a
+ * binary mask image. It only supports batch size 1 tensors.
  */
 class TensorToImageNode : public rclcpp::Node
 {
@@ -59,15 +61,15 @@ private:
    * @param tensor_list The received TensorList message.
    */
   void TensorListCallback(
-    const nvidia::isaac_ros::nitros::NitrosTensorList::ConstSharedPtr & tensor_list_msg);
+    const isaac_ros_tensor_msgs::msg::TensorList::ConstSharedPtr & tensor_list_msg);
 
   // QoS settings
   rclcpp::QoS input_qos_;
   rclcpp::QoS output_qos_;
 
   // Subscribers and publishers
-  rclcpp::Subscription<nvidia::isaac_ros::nitros::NitrosTensorList>::SharedPtr tensor_list_sub_;
-  rclcpp::Publisher<nvidia::isaac_ros::nitros::NitrosImage>::SharedPtr binary_mask_pub_;
+  rclcpp::Subscription<isaac_ros_tensor_msgs::msg::TensorList>::SharedPtr tensor_list_sub_;
+  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr binary_mask_pub_;
 
   // Standard ROS publisher for bounding boxes
   rclcpp::Publisher<vision_msgs::msg::Detection2DArray>::SharedPtr detection_pub_;

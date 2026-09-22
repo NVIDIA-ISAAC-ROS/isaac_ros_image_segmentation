@@ -20,7 +20,7 @@ import pathlib
 import time
 
 from isaac_ros_segment_anything2_interfaces.srv import AddObjects
-from isaac_ros_tensor_list_interfaces.msg import TensorList
+from isaac_ros_tensor_msgs.msg import TensorList
 from isaac_ros_test import IsaacROSBaseTest
 import launch
 from launch_ros.actions import ComposableNodeContainer
@@ -179,12 +179,10 @@ def generate_test_description():
             'input_binding_names': ['image', 'bbox_coords', 'point_coords', 'point_labels',
                                     'mask_memory', 'obj_ptr_memory', 'original_size',
                                     'permutation'],
-            'input_tensor_formats': ['nitros_tensor_list_nchw_rgb_f32'],
             'output_tensor_names': ['high_res_masks', 'object_score_logits',
                                     'maskmem_features', 'maskmem_pos_enc', 'obj_ptr_features'],
             'output_binding_names': ['high_res_masks', 'object_score_logits',
                                      'maskmem_features', 'maskmem_pos_enc', 'obj_ptr_features'],
-            'output_tensor_formats': ['nitros_tensor_list_nchw_rgb_f32'],
             'memory_pool_block_size': 3 * 1024 * 1024 * 4,
         }],
         remappings=[('tensor_pub', 'encoded_data')])
@@ -246,11 +244,16 @@ class IsaacROSSegmentAnything2Test(IsaacROSBaseTest):
     # Will depend on time taken for Triton engine generation
     TEST_DURATION = 200.0
 
-    DATA_TYPE = 2
+    # DLPack dtype for uint8 (see tensor_msgs/ExperimentalTensor.msg)
+    DTYPE_CODE = 1
+    DTYPE_BITS = 8
+    DTYPE_LANES = 1
     DIMENSIONS = [1, 1, 632, 1200]
     RANK = 4
-    STRIDES = [1 * 632 * 1200 * 1, 632 * 1200 * 1, 1200 * 1, 1]
-    DATA_LENGTH = STRIDES[0] * DIMENSIONS[0]
+    # Empty strides: contiguous row-major per the DLPack convention
+    STRIDES = []
+    # uint8: byte count == element count
+    DATA_LENGTH = DIMENSIONS[0] * DIMENSIONS[1] * DIMENSIONS[2] * DIMENSIONS[3]
 
     filepath = pathlib.Path(os.path.dirname(__file__) +
                             '/rosbags/segment_anything_sample_data')
@@ -305,9 +308,12 @@ class IsaacROSSegmentAnything2Test(IsaacROSBaseTest):
             for tensor_list, _ in received_messages[subscriber_topic_namespace]:
                 tensor = tensor_list.tensors[0]
                 self.assertEqual(
-                    tensor.data_type, self.DATA_TYPE,
-                    f'Unexpected tensor data type, expected: {self.DATA_TYPE} '
-                    f'received: {tensor.data_type}'
+                    (tensor.dtype_code, tensor.dtype_bits, tensor.dtype_lanes),
+                    (self.DTYPE_CODE, self.DTYPE_BITS, self.DTYPE_LANES),
+                    f'Unexpected tensor dtype, expected: code={self.DTYPE_CODE} '
+                    f'bits={self.DTYPE_BITS} lanes={self.DTYPE_LANES} received: '
+                    f'code={tensor.dtype_code} bits={tensor.dtype_bits} '
+                    f'lanes={tensor.dtype_lanes}'
                 )
                 self.assertEqual(
                     tensor.strides.tolist(), self.STRIDES,
@@ -320,33 +326,33 @@ class IsaacROSSegmentAnything2Test(IsaacROSBaseTest):
                     f'received: {len(tensor.data)}'
                 )
 
-                shape = tensor.shape
-
                 self.assertEqual(
-                    shape.rank, self.RANK,
-                    f'Unexpected tensor rank, expected: {self.RANK} received: {shape.rank}'
+                    len(tensor.shape), self.RANK,
+                    f'Unexpected tensor rank, expected: {self.RANK} '
+                    f'received: {len(tensor.shape)}'
                 )
                 self.assertEqual(
-                    shape.dims.tolist(), self.DIMENSIONS,
+                    tensor.shape.tolist(), self.DIMENSIONS,
                     f'Unexpected tensor dimensions, expected: {self.DIMENSIONS} '
-                    f'received: {shape.dims}'
+                    f'received: {tensor.shape}'
                 )
 
             # Log properties of last received tensor
             tensor_list, _ = received_messages[subscriber_topic_namespace][-1]
             tensor = tensor_list.tensors[0]
-            shape = tensor.shape
+            tensor_name = tensor_list.names[0] if tensor_list.names else ''
             length = len(tensor.data.tolist())
             strides = tensor.strides.tolist()
-            dimensions = shape.dims.tolist()
+            dimensions = tensor.shape.tolist()
 
             self.node._logger.info(
                 f'Received Tensor Properties:\n'
-                f'Name: {tensor.name}\n'
-                f'Data Type: {tensor.data_type}\n'
+                f'Name: {tensor_name}\n'
+                f'Dtype: code={tensor.dtype_code} bits={tensor.dtype_bits} '
+                f'lanes={tensor.dtype_lanes}\n'
                 f'Strides: {strides}\n'
                 f'Byte Length: {length}\n'
-                f'Rank: {shape.rank}\n'
+                f'Rank: {len(tensor.shape)}\n'
                 f'Dimensions: {dimensions}'
             )
 

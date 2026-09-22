@@ -74,10 +74,6 @@ def generate_launch_description():
             default_value='["input"]',
             description='A list of input tensor binding names (specified by model)'),
         DeclareLaunchArgument(
-            'input_tensor_formats',
-            default_value='["nitros_tensor_list_nchw_rgb_f32"]',
-            description='The nitros format of the input tensors'),
-        DeclareLaunchArgument(
             'output_tensor_names',
             default_value='["output_tensor"]',
             description='A list of tensor names to bound to the specified output binding names'),
@@ -85,10 +81,6 @@ def generate_launch_description():
             'output_binding_names',
             default_value='["output"]',
             description='A  list of output tensor binding names (specified by model)'),
-        DeclareLaunchArgument(
-            'output_tensor_formats',
-            default_value='["nitros_tensor_list_nchw_rgb_f32"]',
-            description='The nitros format of the output tensors'),
         DeclareLaunchArgument(
             'network_output_type',
             default_value='argmax',
@@ -121,10 +113,8 @@ def generate_launch_description():
     max_batch_size = LaunchConfiguration('max_batch_size')
     input_tensor_names = LaunchConfiguration('input_tensor_names')
     input_binding_names = LaunchConfiguration('input_binding_names')
-    input_tensor_formats = LaunchConfiguration('input_tensor_formats')
     output_tensor_names = LaunchConfiguration('output_tensor_names')
     output_binding_names = LaunchConfiguration('output_binding_names')
-    output_tensor_formats = LaunchConfiguration('output_tensor_formats')
 
     # U-Net Decoder parameters
     network_output_type = LaunchConfiguration('network_output_type')
@@ -169,10 +159,8 @@ def generate_launch_description():
             'max_batch_size': max_batch_size,
             'input_tensor_names': input_tensor_names,
             'input_binding_names': input_binding_names,
-            'input_tensor_formats': input_tensor_formats,
             'output_tensor_names': output_tensor_names,
             'output_binding_names': output_binding_names,
-            'output_tensor_formats': output_tensor_formats,
         }])
 
     segformer_decoder_node = ComposableNode(
